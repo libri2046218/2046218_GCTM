@@ -1,3 +1,6 @@
+As ROLE I want ACTION so that I BENEFIT
+es: As a Client , I want to not put my Credentials in the site every time a reload the site, so that I can use the site
+
 | ID | User | Story |
 | :--- | :--- | :--- |
 |US01 | Base Habitat Operator | |
