@@ -1,0 +1,17 @@
+| ID | User | Story |
+| :--- | :--- | :--- |
+|US01 | Base Habitat Operator | |
+|US02 | Base Habitat Operator | |
+|US03 | Base Habitat Operator | |
+|US04 | Base Habitat Operator | |
+|US05 | Base Habitat Operator | |
+|US06 | Technical Habitat Operator | |
+|US07 | Technical Habitat Operator | |
+|US08 | Technical Habitat Operator | |
+|US09 | Technical Habitat Operator | |
+|US10 | Technical Habitat Operator | |
+|US11 | Mission Control Operator | |
+|US12 | Mission Control Operator | |
+|US13 | Mission Control Operator | |
+|US14 | Mission Control Operator | |
+|US15 | Mission Control Operator | |
