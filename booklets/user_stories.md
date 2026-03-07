@@ -3,18 +3,19 @@ es: As a Client , I want to not put my Credentials in the site every time a relo
 
 | ID | User | Story |
 | :--- | :--- | :--- |
-|US01 | Base Habitat Operator | |
-|US02 | Base Habitat Operator | |
-|US03 | Base Habitat Operator | |
-|US04 | Base Habitat Operator | |
-|US05 | Base Habitat Operator | |
-|US06 | Technical Habitat Operator | |
-|US07 | Technical Habitat Operator | |
-|US08 | Technical Habitat Operator | |
-|US09 | Technical Habitat Operator | |
-|US10 | Technical Habitat Operator | |
+|US01 | Base Habitat Operator | I want to see the current greenhouse temperature on the dashboard so that I can ensure the Martian crops do not freeze |
+|US02 | Base Habitat Operator | I want to view a line chart of the power consumption from the power bus so that I can identify unusual energy spikes in real-time |
+|US03 | Base Habitat Operator | I want to see the water tank level displayed in both percentage and liters so that I can manage our limited liquid reserves accurately |
+|US04 | Base Habitat Operator | I want the dashboard to highlight sensors with a "warning" status (like the CO2 hall sensor) so that I can prioritize repairs on malfunctioning life support hardware |
+|US05 | Base Habitat Operator | I want to define a rule that automatically sets the hall ventilation to ON if the air quality VOC measurements exceed safe levels |
+|US06 | Technical Habitat Operator | I want to see all sensor data grouped by type (power related, air quality, ...)|
+|US07 | Technical Habitat Operator | I want to see when the last reading was received for each sensor and force a refresh if needed |
+|US08 | Technical Habitat Operator | I want a way to control actuators manually |
+|US09 | Technical Habitat Operator | I want suggestions to write rules (like names of sensors or actuators) and that I can verify if the rule is valid |
+|US10 | Technical Habitat Operator | I want for each actuator a view of its status and related automations |
 |US11 | Mission Control Operator |I want to visualize the network health status (latency/connectivity) of the message broker and sensors so that I can ensure the communication backbone is stable. |
 |US12 | Mission Control Operator |I want to export the last 24 hours of sensor data into a CSV or JSON file so that I can perform offline scientific analysis of the habitat's environment. |
 |US13 | Mission Control Operator |I want to view a system-wide log of all automated actions taken by the rules so that I can audit why an actuator was triggered during the night. |
 |US14 | Mission Control Operator |I want to define "Safe Range" thresholds for critical sensors (e.g., Oxygen)	so that the system can trigger a visual alarm even if no specific automation rule is set.|
 |US15 | Mission Control Operator |I want to configure a data retention policy (e.g., delete logs older than 30 days), so that the system remains performant and doesn't run out of storage on the local Martian server.|
+
