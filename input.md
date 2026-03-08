@@ -11,54 +11,47 @@
 ```json
 {
   "type": "object",
-  "required": ["event_id", "timestamp", "source", "event_type", "payload"],
+  "required": ["header", "payload"],
   "properties": {
-    "timestamp": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Standardized ISO-8601 observation time, mapped from captured_at, event_time, or updated_at."
-    },
-    "source": {
-      "type": "string",
-      "description": "The origin of the event (e.g., 'sensor:greenhouse_temperature', 'topic:mars/telemetry/solar_array', 'actuator:pump_1')."
-    },
-    "event_type": {
-      "type": "string",
-      "description": "The original contract type (e.g., 'rest.scalar.v1', 'topic.power.v1', 'actuator.response')."
-    },
-    "status": {
-      "type": "string",
-      "enum": ["ok", "warning", "error", "unknown"],
-      "description": "System or sensor health status. Default to 'ok' if not provided by the origin."
+    "header": {
+      "type": "object",
+      "required": ["msg_id", "timestamp", "msg_type", "origin"],
+      "properties": {
+        "msg_id": { "type": "string", "format": "uuid" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "msg_type": { 
+          "type": "string", 
+          "enum": ["TELEMETRY", "RPC_REQUEST", "RPC_RESPONSE", "SYSTEM_ALERT"] 
+        },
+        "origin": { "type": "string" },
+        "correlation_id": { "type": "string", "description": "Obbligatorio per RPC" },
+        "reply_to": { "type": "string", "description": "Coda di risposta per RPC_REQUEST" }
+      }
     },
     "payload": {
       "type": "object",
-      "required": ["measurements"],
+      "required": ["subject_id"],
       "properties": {
-        "tags": {
-          "type": "object",
-          "additionalProperties": { "type": "string" },
-          "description": "Contextual metadata (e.g., subsystem, loop, segment, airlock_id)."
-        },
-        "measurements": {
+        "subject_id": { "type": "string", "description": "ID del sensore o dell'attuatore" },
+        "status": { "type": "string", "enum": ["ok", "warning", "error", "SUCCESS", "FAILED"] },
+        "metrics": {
           "type": "array",
-          "description": "Flattened array of metric-value-unit objects for time-series ingestion.",
           "items": {
             "type": "object",
-            "required": ["metric", "value"],
+            "required": ["name", "value"],
             "properties": {
-              "metric": { "type": "string" },
-              "value": { "type": ["number", "string"] },
+              "name": { "type": "string" },
+              "value": { "type": ["number", "string", "boolean"] },
               "unit": { "type": "string" }
             }
           }
-        }
+        },
+        "metadata": { "type": "object", "description": "Dati extra come subsystem, loop, segment" }
       }
     }
   }
 }
 ```
-
 # RULE MODEL:
 
 ...............
