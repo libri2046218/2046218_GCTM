@@ -1,6 +1,7 @@
 package it.giallocarbonara.automationevaluator.producer;
 
 import it.giallocarbonara.UnifiedEnvelope;
+import it.giallocarbonara.automationevaluator.entity.AutomationRule;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.stereotype.Component;
 
@@ -18,7 +19,7 @@ public class CommandProducer {
         this.jmsTemplate = jmsTemplate;
     }
 
-    public void sendCommand(String targetId, String action) {
+    public void sendCommand(String targetId, AutomationRule.ActuatorState action) {
         // Creiamo l'inviluppo di risposta/comando
         UnifiedEnvelope commandEnvelope = new UnifiedEnvelope(
                 new UnifiedEnvelope.Header(

@@ -10,3 +10,16 @@ spring:
     broker-url: tcp://activemq-broker:61616
     user: admin
     password: admin
+
+  datasource:
+    # 'db-postgres' matches the service name in docker-compose
+    url: jdbc:postgresql://db-postgres-automation:5432/myapp_db
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:password}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect

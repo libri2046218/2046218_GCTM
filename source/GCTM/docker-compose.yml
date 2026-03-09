@@ -23,6 +23,25 @@ services:
     networks:
       - mars-network
 
+  db-postgres-automation:
+    image: postgres:15-alpine
+    container_name: db-postgres-automation
+    environment:
+      POSTGRES_DB: myapp_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./automation-evaluator/postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d myapp_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mars-network
+
   # --- MICROSERVIZI DI BACKEND ---
   sensors-ingestor:
     build:
@@ -53,6 +72,8 @@ services:
       mars-simulator:
         condition: service_started
       activemq-broker:
+        condition: service_healthy
+      db-postgres-automation:
         condition: service_healthy
     networks:
       - mars-network
