@@ -3,17 +3,16 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.3</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <groupId>it.giallocarbonara</groupId>
+        <artifactId>GCTM</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath> <!-- lookup parent from repository -->
     </parent>
     <groupId>it.giallocarbonara</groupId>
-    <artifactId>GCTM</artifactId>
+    <artifactId>history-service</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <packaging>pom</packaging>
-    <name>GCTM</name>
-    <description>GCTM</description>
+    <name>history-service</name>
+    <description>history-service</description>
     <url/>
     <licenses>
         <license/>
@@ -21,14 +20,6 @@
     <developers>
         <developer/>
     </developers>
-    <modules>
-        <module>common-dto</module>
-        <module>sensors-ingestor</module>
-        <module>automation-evaluator</module>
-        <module>actuator-manager</module>
-        <module>history-service</module>
-        <module>web-engine</module>
-    </modules>
     <scm>
         <connection/>
         <developerConnection/>
@@ -39,6 +30,11 @@
         <java.version>25</java.version>
     </properties>
     <dependencies>
+        <dependency>
+            <groupId>it.giallocarbonara</groupId>
+            <artifactId>common-dto</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
