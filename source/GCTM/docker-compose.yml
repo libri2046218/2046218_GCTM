@@ -1,8 +1,6 @@
 services:
   mars-simulator:
-    build:
-      context: .
-      dockerfile: ./simulator/Dockerfile
+    image: mars-iot-simulator:multiarch_v1
     container_name: mars-simulator
     networks:
       - mars-network
