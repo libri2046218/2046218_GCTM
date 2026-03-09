@@ -1,0 +1,80 @@
+services:
+  mars-simulator:
+    build:
+      context: .
+      dockerfile: ./simulator/Dockerfile
+    container_name: mars-simulator
+    networks:
+      - mars-network
+  # --- INFRASTRUTTURA: MESSAGE BROKER ---
+  activemq-broker:
+    image: apache/activemq-classic:latest
+    container_name: activemq-broker
+    ports:
+      - "61616:61616" # Porta per protocollo OpenWire (JMS)
+      - "5672:5672"   # Porta per protocollo AMQP
+      - "8161:8161"   # Console Web (admin/admin)
+    networks:
+      - mars-network
+
+  # --- MICROSERVIZI DI BACKEND ---
+  sensors-ingestor:
+    build:
+      context: .
+      dockerfile: ./sensors-ingestor/Dockerfile
+    container_name: sensors-ingestor
+    environment:
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
+      - SIMULATOR_URL=http://mars-simulator:8080 # URL del simulatore IoT
+    depends_on:
+      - mars-simulator
+      - activemq-broker
+    networks:
+      - mars-network
+
+  automation-evaluator:
+    build:
+      context: .
+      dockerfile: ./automation-evaluator/Dockerfile
+    container_name: automation-evaluator
+    environment:
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
+    depends_on:
+      - mars-simulator
+      - activemq-broker
+    networks:
+      - mars-network
+
+  actuator-manager:
+    build:
+      context: .
+      dockerfile: ./actuator-manager/Dockerfile
+    container_name: actuator-manager
+    environment:
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
+      - SIMULATOR_URL=http://mars-simulator:8080
+    depends_on:
+      - mars-simulator
+      - activemq-broker
+    networks:
+      - mars-network
+
+  # --- PRESENTATION LAYER (BFF + UI) ---
+  web-engine:
+    build:
+      context: .
+      dockerfile: ./web-engine/Dockerfile
+    container_name: web-engine
+    ports:
+      - "8080:8080" # Porta esposta per la Dashboard
+    environment:
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
+    depends_on:
+      - mars-simulator
+      - activemq-broker
+    networks:
+      - mars-network
+  
+networks:
+  mars-network:
+    driver: bridge
