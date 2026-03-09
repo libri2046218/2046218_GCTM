@@ -5,10 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public record UnifiedEnvelope(
-        Header header,
-        Payload payload
-) {
+public record UnifiedEnvelope(Header header, Payload payload) {
     // Record per l'Header
     public record Header(
             UUID msg_id,
