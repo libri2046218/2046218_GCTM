@@ -28,6 +28,7 @@
         <module>actuator-manager</module>
         <module>history-service</module>
         <module>web-engine</module>
+        <module>common</module>
     </modules>
     <scm>
         <connection/>

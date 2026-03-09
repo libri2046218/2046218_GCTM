@@ -4,14 +4,22 @@ services:
     container_name: mars-simulator
     networks:
       - mars-network
+
   # --- INFRASTRUTTURA: MESSAGE BROKER ---
   activemq-broker:
     image: apache/activemq-classic:latest
     container_name: activemq-broker
+    healthcheck:
+      # Usiamo nc per verificare che la porta JMS sia pronta
+      test: ["CMD", "curl", "-f", "--user", "admin:admin", "http://localhost:8161/admin/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     ports:
-      - "61616:61616" # Porta per protocollo OpenWire (JMS)
-      - "5672:5672"   # Porta per protocollo AMQP
-      - "8161:8161"   # Console Web (admin/admin)
+      - "61616:61616"
+      - "5672:5672"
+      - "8161:8161"
     networks:
       - mars-network
 
@@ -23,10 +31,14 @@ services:
     container_name: sensors-ingestor
     environment:
       - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
-      - SIMULATOR_URL=http://mars-simulator:8080 # URL del simulatore IoT
+      - SIMULATOR_URL=http://mars-simulator:8080
     depends_on:
-      - mars-simulator
-      - activemq-broker
+      mars-simulator:
+        condition: service_started
+      activemq-broker:
+        condition: service_healthy
+      automation-evaluator:
+        condition: service_started
     networks:
       - mars-network
 
@@ -38,8 +50,10 @@ services:
     environment:
       - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
     depends_on:
-      - mars-simulator
-      - activemq-broker
+      mars-simulator:
+        condition: service_started
+      activemq-broker:
+        condition: service_healthy
     networks:
       - mars-network
 
@@ -52,8 +66,10 @@ services:
       - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
       - SIMULATOR_URL=http://mars-simulator:8080
     depends_on:
-      - mars-simulator
-      - activemq-broker
+      mars-simulator:
+        condition: service_started
+      activemq-broker:
+        condition: service_healthy
     networks:
       - mars-network
 
@@ -64,15 +80,17 @@ services:
       dockerfile: ./web-engine/Dockerfile
     container_name: web-engine
     ports:
-      - "8080:8080" # Porta esposta per la Dashboard
+      - "8080:8080"
     environment:
       - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
     depends_on:
-      - mars-simulator
-      - activemq-broker
+      mars-simulator:
+        condition: service_started
+      activemq-broker:
+        condition: service_healthy
     networks:
       - mars-network
-  
+
 networks:
   mars-network:
     driver: bridge

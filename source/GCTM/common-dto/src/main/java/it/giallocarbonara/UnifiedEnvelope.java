@@ -1,6 +1,6 @@
 package it.giallocarbonara;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -9,7 +9,7 @@ public record UnifiedEnvelope(Header header, Payload payload) {
     // Record per l'Header
     public record Header(
             UUID msg_id,
-            OffsetDateTime timestamp,
+            Instant timestamp,
             MsgType msg_type,
             String origin,
             String correlation_id, // Opzionale per Telemetria, Obbligatorio per RPC

@@ -1,3 +1,11 @@
 spring:
   application:
     name: history-service
+  jms:
+    # This is the crucial setting for Topics
+    pub-sub-domain: true
+  activemq:
+    # Ensure this matches your docker-compose service name
+    broker-url: tcp://activemq-broker:61616
+    user: admin
+    password: admin
