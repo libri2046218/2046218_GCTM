@@ -6,5 +6,5 @@ public record SensorData(
         Header header,
         String sensor_id,
         String status,
-        List<UnifiedEnvelope.Metric> metrics
+        List<Metric> metrics
 ) {}
