@@ -3,7 +3,7 @@ services:
     image: mars-iot-simulator:multiarch_v1
     container_name: mars-simulator
     ports:
-      - "8081:8080" # Modified port in order to don't interfere with web-engine assignment
+      - 8081:8080
     networks:
       - mars-network
 
