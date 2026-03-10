@@ -15,10 +15,10 @@ GialloCarbonara To Mars is a platform that allows people stationed on Mars to mo
 09) As a Technical Habitat Operator, I want suggestions to write rules (like names of sensors or actuators) and that I can verify if the rule is valid
 10) As a Technical Habitat Operator, I want for each actuator a view of its status and related automations
 11) As a Mission Control Operator, I want to visualize the network health status (latency/connectivity) of the message broker and sensors so that I can ensure the communication backbone is stable.
-12) As a Mission Control Operator, I want to export the last 24 hours of sensor data into a CSV or JSON file so that I can perform offline scientific analysis of the habitat's environment.
-13) As a Mission Control Operator, I want to view a system-wide log of all automated actions taken by the rules so that I can audit why an actuator was triggered during the night.
+12) As a Mission Control Operator, I want to export sensor data into a CSV or JSON file so that I can perform offline scientific analysis of the habitat's environment.
+13) As a Mission Control Operator, I want to view a system-wide log of all automated actions taken by the rules so that I can audit why an actuator was triggered.
 14) As a Mission Control Operator, I want to define "Safe Range" thresholds for critical sensors (e.g., Oxygen)	so that the system can trigger a visual alarm even if no specific automation rule is set.
-15) As a Mission Control Operator, I want to configure a data retention policy (e.g., delete logs older than 30 days), so that the system remains performant and doesn't run out of storage on the local Martian server.
+15) As a Mission Control Operator, I want to see when an actuator changes state, whatever page I am on.
 
 # EVENT SCHEMA:
 
@@ -123,11 +123,14 @@ The rules are modeled as JSON objects that define the conditions under which cer
   "properties": {
     "header": { "$ref": "#/definitions/Header" },
     "sensorName": { "type": "string" },
+    "metricName": {"type": "string"},
     "operator": { "type": "string", "description": "Logical operator, e.g., >, <, ==, >=, <=" },
     "value": { "type": "number", "description": "Threshold value to trigger the rule" },
+    "valueText": {"type": "string", "description": "Field for textual metrics" },
     "actuatorName": { "type": "string" },
     "actuatorState": { "type": "string", "description": "Target state to apply if the condition is met" },
-    "manualOverride": { "type": "boolean", "description": "If true, the rule is disabled/bypassed" }
+    "manualOverride": { "type": "boolean", "description": "If true, the rule is disabled/bypassed" },
+    "deletionReq": { "type": "boolean", "description": "If true, this rule should be deleted from the system" }
   },
   "required": ["header", "sensorName", "operator", "value", "actuatorName", "actuatorState", "manualOverride"]
 },

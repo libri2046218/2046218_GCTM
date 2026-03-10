@@ -15,10 +15,10 @@ GialloCarbonara To Mars is a platform that allows people stationed on Mars to mo
 09) As a Technical Habitat Operator, I want suggestions to write rules (like names of sensors or actuators) and that I can verify if the rule is valid
 10) As a Technical Habitat Operator, I want for each actuator a view of its status and related automations
 11) As a Mission Control Operator, I want to visualize the network health status (latency/connectivity) of the message broker and sensors so that I can ensure the communication backbone is stable.
-12) As a Mission Control Operator, I want to export the last 24 hours of sensor data into a CSV or JSON file so that I can perform offline scientific analysis of the habitat's environment.
-13) As a Mission Control Operator, I want to view a system-wide log of all automated actions taken by the rules so that I can audit why an actuator was triggered during the night.
+12) As a Mission Control Operator, I want to export sensor data into a CSV or JSON file so that I can perform offline scientific analysis of the habitat's environment.
+13) As a Mission Control Operator, I want to view a system-wide log of all automated actions taken by the rules so that I can audit why an actuator was triggered.
 14) As a Mission Control Operator, I want to define "Safe Range" thresholds for critical sensors (e.g., Oxygen)	so that the system can trigger a visual alarm even if no specific automation rule is set.
-15) As a Mission Control Operator, I want to configure a data retention policy (e.g., delete logs older than 30 days), so that the system remains performant and doesn't run out of storage on the local Martian server.
+15) As a Mission Control Operator, I want to see when an actuator changes state, whatever page I am on.
 
 
 # CONTAINERS:
@@ -111,7 +111,7 @@ It listens to the `command.actuators.topic` on the message broker. When an `Actu
 The Automation container is responsible for storing, evaluating and executing automations based on the data received from the message broker.
 
 ### USER STORIES:
-05, 09, 10, 13
+05, 09, 10, 13, 15
 
 ### PERSISTENCE EVALUATION
 The Automation container requires data persistence to store the automations' rules.
@@ -140,47 +140,6 @@ It acts as a consumer listening to telemetry data from the sensors. It queries t
 Utilizes a PostgreSQL 15 (Alpine) relational database image.
 - SERVICE ARCHITECTURE: 
 It provides a robust SQL backend mapped to a persistent volume (`postgres_data`) to ensure automation rules survive container restarts.
-
-
-## CONTAINER_NAME: Logging
-
-### DESCRIPTION: 
-The Logging container is responsible for maintaining an audit trail of all automated actions and storing historical sensor data for offline export and analysis.
-
-### USER STORIES:
-12, 13, 14, 15
-
-### PORTS: 
-9200:9200 (Elasticsearch), 5601:5601 (Kibana - optional/disabled by default)
-
-### PERSISTENCE EVALUATION
-Requires data persistence to persistently store historical logs, system audit trails, and time-series sensor data.
-
-### EXTERNAL SERVICES CONNECTIONS
-Does not connect to external services.
-
-### MICROSERVICES:
-
-#### MICROSERVICE: history-service
-- TYPE: backend
-- DESCRIPTION: Listens to all broker traffic and persists it. Handles data pruning and file generation for export.
-- PORTS: Internal communication only.
-- TECHNOLOGICAL SPECIFICATION:
-Java Spring Boot application utilizing Spring Data Elasticsearch to interact with the underlying document store, and Spring JMS to act as a system-wide eavesdropper on the message broker.
-- SERVICE ARCHITECTURE: 
-It implements several JMS listeners targeting various system topics (telemetry, commands, rules). Upon consuming a message, it parses the metadata and saves it as an `AuditLog` entity into Elasticsearch.
-
-#### MICROSERVICE: db-history
-- TYPE: database
-- DESCRIPTION: Stores historical telemetry and audit trails.
-- PORTS: 9200:9200
-- TECHNOLOGICAL SPECIFICATION:
-Utilizes an Elasticsearch 8.17 NoSQL document store optimized for time-series data and fast querying.
-- SERVICE ARCHITECTURE: 
-Exposes REST APIs on port 9200 for document insertion and search queries. Configured as a single-node cluster mapping data to a local volume (`logdata`).
-
-- DB STRUCTURE: 
-	**_system_logs_** (Index) :	| **_id_** | timestamp | type | correlationId | payload |
 
 
 ## CONTAINER_NAME: Presentation
@@ -220,6 +179,7 @@ It serves the static frontend assets (`index.html`, `app.js`, `style.css`). It a
     | PUB | /actuators/sync | Requests a full sync of actuator statuses | 10 |
     | PUB | /actuators/control | Sends a command to change actuator state | 08 |
     | PUB | /rules/add | Submits a new automation rule | 05, 09 |
+    | PUB | /rules/delete | Delete existing automation rule |  |
 
 #### MICROSERVICE: dashboard-ui
 - TYPE: frontend
