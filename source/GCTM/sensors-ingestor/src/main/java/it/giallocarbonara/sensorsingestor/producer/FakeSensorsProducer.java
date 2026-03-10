@@ -1,6 +1,9 @@
 package it.giallocarbonara.sensorsingestor.producer;
 
-import it.giallocarbonara.UnifiedEnvelope;
+import it.giallocarbonara.AutomRule;
+import it.giallocarbonara.Header;
+import it.giallocarbonara.Metric;
+import it.giallocarbonara.SensorData;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -8,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
@@ -28,12 +30,63 @@ public class FakeSensorsProducer {
             new SensorConfig("mars/telemetry/radiation", "radiation_level", "mSv", 0.01, 5.0)
     );
 
+    // Add these lists at the class level to provide random choices for the rules
+    private final List<String> operators = List.of(">", "<", ">=", "<=", "==");
+    private final List<String> actuatorNames = List.of("HVAC_SYSTEM", "WATER_PUMP", "ALARM_SIREN", "WINDOW_BLINDS", "MAIN_VALVE");
+    private final List<String> actuatorStates = List.of("ON", "OFF", "OPEN", "CLOSED");
+    private final List<String> ruleSensorNames = List.of("greenhouse_temperature", "entrance_humidity", "co2_hall", "hydroponic_ph");
+
     public FakeSensorsProducer(JmsTemplate jmsTemplate) {
         this.jmsTemplate = jmsTemplate;
     }
 
+    @Scheduled(fixedRate = 5000)
+    public void fakeNewRule() {
+        System.out.println("🛠️ [SENDER] Initializing test automation rule...");
+
+        // Generate random rule parameters
+        String sensorName = ruleSensorNames.get(random.nextInt(ruleSensorNames.size()));
+        String operator = operators.get(random.nextInt(operators.size()));
+        String actuatorName = actuatorNames.get(random.nextInt(actuatorNames.size()));
+        String actuatorState = actuatorStates.get(random.nextInt(actuatorStates.size()));
+        boolean manualOverride = Boolean.FALSE;
+
+        // Generate a random threshold value between 0.0 and 100.0, rounded to 2 decimal places
+        double value = random.nextDouble() * 100.0;
+        double roundedValue = Math.round(value * 100.0) / 100.0;
+
+        // Build the Rule DTO
+        AutomRule rule = new AutomRule(
+                new Header(
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        "fake-rules-generator",
+                        null,
+                        null),
+                sensorName,
+                operator,
+                roundedValue,
+                actuatorName,
+                actuatorState,
+                manualOverride
+        );
+
+        // Send to the Topic for rules ingestion
+        jmsTemplate.convertAndSend("newrules.topic", rule);
+
+        // Log the generated rule in a readable format
+        System.out.printf("🛠️ [SENDER] Rule-ID: %s | Created Rule: IF %s %s %.2f THEN SET %s TO %s (Override: %b)%n",
+                rule.header().msg_id(),
+                sensorName,
+                operator,
+                roundedValue,
+                actuatorName,
+                actuatorState,
+                manualOverride);
+    }
+
     @Scheduled(fixedRate = 1000)
-    public void FakeData() {
+    public void fakeData() {
         System.out.println("🚀 [SENDER] Initializing test message...");
 
         // Randomly select a sensor profile
@@ -41,30 +94,23 @@ public class FakeSensorsProducer {
         double value = config.min + (config.max - config.min) * random.nextDouble();
         double roundedValue = Math.round(value * 100.0) / 100.0;
 
-        // Construct the UnifiedEnvelope
-        UnifiedEnvelope.Header header = new UnifiedEnvelope.Header(
-                UUID.randomUUID(),
-                Instant.now(),
-                UnifiedEnvelope.MsgType.TELEMETRY,
-                "FAKE-INGESTOR-SERVICE", // Origin service
-                null,
-                null
-        );
-
-        UnifiedEnvelope.Payload payload = new UnifiedEnvelope.Payload(
-                config.subjectId, // Same name as required by the simulator docs [cite: 41]
-                UnifiedEnvelope.Status.ok,
-                List.of(new UnifiedEnvelope.Metric(config.metricName, roundedValue, config.unit)),
-                Map.of("habitat_sector", "Alpha-Main")
-        );
-
-        UnifiedEnvelope testMsg = new UnifiedEnvelope(header, payload);
+        SensorData sensorData = new SensorData(
+                new Header(
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        "fake-sensors-ingestor",
+                        null,
+                        null),
+                config.subjectId,
+                "ok",
+                List.of(new Metric(config.metricName, roundedValue, config.unit))
+                );
 
         // Send to the Topic for normalization testing [cite: 73]
-        jmsTemplate.convertAndSend("sensors.topic", testMsg);
+        jmsTemplate.convertAndSend("sensors.topic", sensorData);
 
         System.out.printf("🚀 [SENDER] Message-ID: %s |Sent %s metric from %s: %.2f %s%n",
-                testMsg.header().msg_id(), config.metricName, config.subjectId, roundedValue, config.unit);
+                sensorData.header().msg_id(), config.metricName, config.subjectId, roundedValue, config.unit);
     }
 
     private record SensorConfig(String subjectId, String metricName, String unit, double min, double max) {}

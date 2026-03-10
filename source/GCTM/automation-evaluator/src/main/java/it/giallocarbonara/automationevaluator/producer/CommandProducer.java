@@ -1,5 +1,7 @@
 package it.giallocarbonara.automationevaluator.producer;
 
+import it.giallocarbonara.ActuatorCommand;
+import it.giallocarbonara.Header;
 import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.entity.AutomationRule;
 import org.springframework.jms.core.JmsTemplate;
@@ -19,26 +21,22 @@ public class CommandProducer {
         this.jmsTemplate = jmsTemplate;
     }
 
-    public void sendCommand(String targetId, AutomationRule.ActuatorState action) {
+    public void sendCommand(String targetId, String action) {
         // Creiamo l'inviluppo di risposta/comando
-        UnifiedEnvelope commandEnvelope = new UnifiedEnvelope(
-                new UnifiedEnvelope.Header(
+
+        ActuatorCommand actuatorCommand = new ActuatorCommand(
+                new Header(
                         UUID.randomUUID(),
                         Instant.now(),
-                        UnifiedEnvelope.MsgType.RPC_REQUEST,
                         "automation-evaluator",
-                        null, // correlation_id opzionale qui
+                        null,
                         null
                 ),
-                new UnifiedEnvelope.Payload(
-                        targetId,
-                        UnifiedEnvelope.Status.ok,
-                        List.of(new UnifiedEnvelope.Metric("action", action, "command")),
-                        Map.of("priority", "high")
-                )
-        );
+                targetId,
+                action
+                );
 
-        jmsTemplate.convertAndSend("actuators.commands", commandEnvelope);
+        jmsTemplate.convertAndSend("actuators.commands", actuatorCommand);
         System.out.println("📤 Comando '" + action + "' inviato a actuators.commands");
     }
 }

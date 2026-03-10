@@ -1,5 +1,6 @@
 package it.giallocarbonara.automationevaluator.consumer;
 
+import it.giallocarbonara.AutomRule;
 import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.service.AutomationService;
 import org.springframework.jms.annotation.JmsListener;
@@ -14,12 +15,12 @@ public class NewRulesListener {
     }
 
     @JmsListener(destination = "newrules.topic")
-    public void onMessage(UnifiedEnvelope envelope) {
+    public void onMessage(AutomRule rule) {
         // Log di monitoraggio
-        envelope.printSummary();
+        System.out.println(rule.header().msg_id());
 
         // Passiamo l'intero oggetto al servizio per la valutazione
-        automationService.createNewRule(envelope);
+        automationService.createNewRule(rule);
     }
 }
 

@@ -1,5 +1,6 @@
 package it.giallocarbonara.automationevaluator.consumer;
 
+import it.giallocarbonara.SensorData;
 import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.service.AutomationService;
 import org.springframework.jms.annotation.JmsListener;
@@ -15,11 +16,11 @@ public class SensorsListener {
     }
 
     @JmsListener(destination = "sensors.topic")
-    public void onMessage(UnifiedEnvelope envelope) {
+    public void onMessage(SensorData sensorData) {
         // Log di monitoraggio
-        envelope.printSummary();
+        System.out.println(sensorData.header().msg_id());
 
         // Passiamo l'intero oggetto al servizio per la valutazione
-        automationService.evaluate(envelope);
+        automationService.evaluate(sensorData);
     }
 }

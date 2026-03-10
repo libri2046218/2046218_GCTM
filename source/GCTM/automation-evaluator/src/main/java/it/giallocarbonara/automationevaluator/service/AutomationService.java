@@ -1,6 +1,8 @@
 package it.giallocarbonara.automationevaluator.service;
 
-import it.giallocarbonara.UnifiedEnvelope;
+import it.giallocarbonara.AutomRule;
+import it.giallocarbonara.Metric;
+import it.giallocarbonara.SensorData;
 import it.giallocarbonara.automationevaluator.entity.AutomationRule;
 import it.giallocarbonara.automationevaluator.producer.CommandProducer;
 import it.giallocarbonara.automationevaluator.repository.RuleRepository;
@@ -19,28 +21,28 @@ public class AutomationService {
         this.ruleRepository = ruleRepository;
     }
 
-    public void createNewRule(UnifiedEnvelope envelope) {
-        //TODO: Unwrap envelope
-        String sensorName = "";
-        String operator = "";
-        Double value = 0.0;
-        String actuatorName = "";
-        AutomationRule.ActuatorState actuatorState = AutomationRule.ActuatorState.OFF;
-        AutomationRule newRule = new AutomationRule(null, sensorName, operator, value, actuatorName, actuatorState);
+    public void createNewRule(AutomRule rule) {
+        String sensorName = rule.sensorName();
+        String operator = rule.operator();
+        Double value = rule.value();
+        String actuatorName = rule.actuatorName();
+        String actuatorState = rule.actuatorState();
+        Boolean manualOverride = rule.manualOverride();
+        AutomationRule newRule = new AutomationRule(null, sensorName, operator, value, actuatorName, actuatorState, manualOverride);
         ruleRepository.save(newRule);
     }
 
-    public void evaluate(UnifiedEnvelope envelope) {
-        for (UnifiedEnvelope.Metric metric : envelope.payload().metrics()) {
+    public void evaluate(SensorData sensorData) {
 
-            List<AutomationRule> rules = ruleRepository.findByMetricNameIgnoreCase(metric.name());
-
-            for (AutomationRule rule : rules) {
-                if (checkCondition(rule, metric.value())) {
-                    triggerAction(envelope.payload().subject_id(), rule.getActuatorState());
-                }
+        List<AutomationRule> rules = ruleRepository.findBySensorNameIgnoreCase(sensorData.sensor_id());
+        System.out.println("RULES: " + rules.toString());
+        for (AutomationRule rule : rules) {
+            if(rule.getManualOverride() == Boolean.TRUE) {continue;}
+            if (checkCondition(rule, sensorData.metrics().getFirst().value())) {
+                triggerAction(sensorData.sensor_id(), rule.getActuatorState());
             }
         }
+
     }
 
     private boolean checkCondition(AutomationRule rule, Object value) {
@@ -48,14 +50,14 @@ public class AutomationService {
         double currentVal = num.doubleValue();
 
         return switch (rule.getOperator()) {
-            case "<" -> currentVal < rule.getvalue();
-            case ">" -> currentVal > rule.getvalue();
-            case "==" -> currentVal == rule.getvalue();
+            case "<" -> currentVal < rule.getValue();
+            case ">" -> currentVal > rule.getValue();
+            case "==" -> currentVal == rule.getValue();
             default -> false;
         };
     }
 
-    private void triggerAction(String actuatorName, AutomationRule.ActuatorState action) {
+    private void triggerAction(String actuatorName, String action) {
         System.out.println("⚠️ ACTION: " + action + " for " + actuatorName);
         commandProducer.sendCommand(actuatorName, action);
     }

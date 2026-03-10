@@ -7,5 +7,5 @@ public record AutomRule(
         Double value,
         String actuatorName,
         String actuatorState,
-        Boolean manual_override
+        Boolean manualOverride
 ) {}
