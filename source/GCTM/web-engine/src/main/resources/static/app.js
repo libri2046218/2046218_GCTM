@@ -179,6 +179,9 @@ const stompClient = new window.StompJs.Client({
             console.log('🔌 Actuator status received:', data);
             handleActuatorStatus(data);
         });
+
+        // Request full actuator snapshot on every client reconnect/refresh.
+        stompClient.publish({ destination: '/app/actuators/sync', body: JSON.stringify({ reason: 'page_refresh' }) });
     },
     onDisconnect: () => {
         document.getElementById('connection-status').innerHTML =
@@ -266,9 +269,13 @@ function handleSensorDiscovery(sensorData) {
 }
 
 function handleActuatorStatus(actuatorStatus) {
-    // ActuatorStatus structure: { header, actuator_id, actual_state, updated_at }
-    const actuatorId = actuatorStatus.actuator_id;
-    const timestamp = actuatorStatus.header.timestamp;
+    // Supports both ActuatorStatus and legacy envelope-like payloads.
+    const actuatorId = actuatorStatus?.actuator_id
+        || actuatorStatus?.actuatorId
+        || actuatorStatus?.payload?.subject_id;
+    if (!actuatorId) return;
+
+    const timestamp = actuatorStatus?.header?.timestamp || actuatorStatus?.updated_at || new Date().toISOString();
     const isNew = !state.knownActuators.has(actuatorId);
 
     if (isNew) {
@@ -278,7 +285,10 @@ function handleActuatorStatus(actuatorStatus) {
     }
 
     // Get the actual state from the message
-    const actuatorState = actuatorStatus.actual_state || 'UNKNOWN';
+    const metricState = Array.isArray(actuatorStatus?.payload?.metrics)
+        ? actuatorStatus.payload.metrics.find(m => m?.name === 'actual_state')?.value
+        : undefined;
+    const actuatorState = actuatorStatus?.actual_state || actuatorStatus?.actualState || metricState || 'UNKNOWN';
     const previousState = state.actuators[actuatorId]?.state;
 
     // Update state

@@ -23,6 +23,25 @@ public class ActuatorController {
         this.jmsTemplate = jmsTemplate;
     }
 
+    @MessageMapping("/actuators/sync")
+    public void requestActuatorsSync() {
+        ActuatorCommand syncRequest = new ActuatorCommand(
+                new Header(
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        "web-engine",
+                        UUID.randomUUID().toString(),
+                        "/topic/actuators/status"
+                ),
+                "*",
+                "STATUS_SYNC"
+        );
+
+        jmsTemplate.setPubSubDomain(true);
+        jmsTemplate.convertAndSend("command.actuators.topic", syncRequest);
+        logger.info("Actuator status sync request published to command.actuators.topic");
+    }
+
     /**
      * Handles WebSocket commands from the frontend and publishes ActuatorCommand to the broker.
      * Frontend sends: {actuatorId: "...", action: "ON"/"OFF"}
