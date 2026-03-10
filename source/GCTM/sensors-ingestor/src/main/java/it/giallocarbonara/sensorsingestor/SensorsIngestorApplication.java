@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
+import org.springframework.jms.annotation.JmsListener;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,18 +24,33 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @SpringBootApplication(scanBasePackages = "it.giallocarbonara")
 @EnableScheduling
 public class SensorsIngestorApplication {
 
+    private static final String SENSORS_BASE_URL = "http://mars-simulator:8080/api/sensors";
+
+    private static final List<String> STATIC_SENSOR_ENDPOINTS = List.of(
+            "greenhouse_temperature", "entrance_humidity", "co2_hall",
+            "hydroponic_ph", "water_tank_level", "corridor_pressure",
+            "air_quality_pm25", "air_quality_voc"
+    );
+
+    private static final List<String> TELEMETRY_TOPICS = List.of(
+            "mars/telemetry/solar_array", "mars/telemetry/radiation",
+            "mars/telemetry/life_support", "mars/telemetry/thermal_loop",
+            "mars/telemetry/power_bus", "mars/telemetry/power_consumption",
+            "mars/telemetry/airlock"
+    );
+
     private final JmsTemplate jmsTemplate;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper mapper = new ObjectMapper();
-
-    // Endpoint di base per i sensori
-    private final String SENSORS_BASE_URL = "http://mars-simulator:8080/api/sensors";
+    private final Map<String, SensorData> lastKnownState = new ConcurrentHashMap<>();
 
     public SensorsIngestorApplication(JmsTemplate jmsTemplate) {
         this.jmsTemplate = jmsTemplate;
@@ -44,27 +60,52 @@ public class SensorsIngestorApplication {
         SpringApplication.run(SensorsIngestorApplication.class, args);
     }
 
+    @JmsListener(destination = "command.sensors.topic", subscription = "sensors-ingestor-sync")
+    public void onSensorsSyncRequest(Map<String, Object> command) {
+        String action = String.valueOf(command.getOrDefault("action", ""));
+
+        if ("STATUS_SYNC".equalsIgnoreCase(action)) {
+            System.out.println("[SYNC] Received STATUS_SYNC request. Broadcasting sensor snapshot...");
+            broadcastInitialSensorStatus();
+        } else if ("FORCE_REFRESH".equalsIgnoreCase(action)) {
+            String sensorId = String.valueOf(command.getOrDefault("sensorId", ""));
+            System.out.println("[REFRESH] Force refresh for: " + sensorId);
+
+            if (STATIC_SENSOR_ENDPOINTS.contains(sensorId)) {
+                fetchAndProcessSingleSensor(sensorId);
+            } else {
+                SensorData cached = lastKnownState.get(sensorId);
+                if (cached != null) {
+                    jmsTemplate.setPubSubDomain(true);
+                    jmsTemplate.convertAndSend("sensors.topic", cached);
+                    System.out.println("[REFRESH] Republished cached state for: " + sensorId);
+                }
+            }
+        }
+    }
+
     /**
-     * AZIONE RICHIESTA: Chiamata REST GET api/sensors generica all'avvio.
-     * Recupera l'elenco di tutti i sensori disponibili e ne pubblica lo stato iniziale.
+     * Esegue la GET generica /api/sensors all'avvio e per ogni sensore trovato
+     * effettua il broadcast dello stato iniziale.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void broadcastInitialSensorStatus() {
         try {
             System.out.println("🔍 [STARTUP] Recupero elenco sensori da " + SENSORS_BASE_URL);
+            String jsonRaw = restTemplate.getForObject(SENSORS_BASE_URL, String.class);
 
-            // 1. Chiamata GET generica per ottenere la lista dei sensori
-            JsonNode sensorList = restTemplate.getForObject(SENSORS_BASE_URL, JsonNode.class);
+            if (jsonRaw != null && !jsonRaw.isBlank()) {
+                JsonNode responseNode = mapper.readTree(jsonRaw);
+                // Gestione flessibile sia se array diretto che se oggetto con chiave "sensors"
+                JsonNode sensorList = responseNode.isArray() ? responseNode : responseNode.get("sensors");
 
-            if (sensorList != null && sensorList.isArray()) {
-                System.out.println("📡 [STARTUP] Trovati " + sensorList.size() + " sensori. Inizio broadcast...");
-
-                // 2. Iterazione sulla lista restituita dal simulatore
-                for (JsonNode s : sensorList) {
-                    String sensorName = s.asText();
-                    fetchAndProcessSingleSensor(sensorName);
+                if (sensorList != null && sensorList.isArray()) {
+                    System.out.println("📡 [STARTUP] Trovati " + sensorList.size() + " sensori. Inizio broadcast...");
+                    for (JsonNode s : sensorList) {
+                        fetchAndProcessSingleSensor(s.asText());
+                    }
+                    System.out.println("✅ [STARTUP] Broadcast iniziale completato.");
                 }
-                System.out.println("✅ [STARTUP] Broadcast iniziale completato.");
             }
         } catch (Exception e) {
             System.err.println("❌ [STARTUP ERROR] Impossibile recuperare lista sensori: " + e.getMessage());
@@ -73,70 +114,86 @@ public class SensorsIngestorApplication {
 
     @Scheduled(fixedRate = 5000)
     public void scheduledFetch() {
-        // Possiamo riutilizzare la logica del broadcast iniziale o usare una lista statica
-        // Per efficienza, qui usiamo la lista statica definita precedentemente
-        List<String> staticEndpoints = List.of(
-                "greenhouse_temperature", "entrance_humidity", "co2_hall",
-                "hydroponic_ph", "water_tank_level", "corridor_pressure",
-                "air_quality_pm25", "air_quality_voc"
-        );
-        staticEndpoints.forEach(this::fetchAndProcessSingleSensor);
+        STATIC_SENSOR_ENDPOINTS.forEach(this::fetchAndProcessSingleSensor);
     }
 
-    /**
-     * Helper per recuperare i dati di un singolo sensore e inviarli al broker.
-     */
-    private void fetchAndProcessSingleSensor(String endpoint) {
+    private void fetchAndProcessSingleSensor(String sensorId) {
         try {
-            String url = SENSORS_BASE_URL + "/" + endpoint;
+            String url = SENSORS_BASE_URL + "/" + sensorId;
             String jsonRaw = restTemplate.getForObject(url, String.class);
             if (jsonRaw != null) {
-                JsonNode root = mapper.readTree(jsonRaw);
-                processAndSend(root, endpoint);
+                processAndSend(mapper.readTree(jsonRaw), sensorId);
             }
         } catch (Exception e) {
-            System.err.println("❌ [FETCH ERROR] " + endpoint + ": " + e.getMessage());
-        }
-    }
-
-    private void processAndSend(JsonNode node, String sourceId) {
-        // Identificazione del soggetto
-        String subjectId = sourceId;
-        if (node.has("sensor_id")) subjectId = node.get("sensor_id").asText();
-
-        List<Metric> metrics = new ArrayList<>();
-
-        // Logica di mapping (Metrica Scalare)
-        if (node.has("value") && node.has("metric")) {
-            metrics.add(new Metric(node.get("metric").asText(), node.get("value").asDouble(), node.get("unit").asText("")));
-        }
-        // Logica di mapping (Misure Multiple/Chimica)
-        else if (node.has("measurements")) {
-            node.get("measurements").forEach(m -> metrics.add(new Metric(
-                    m.get("metric").asText(), m.get("value").asDouble(), m.get("unit").asText(""))));
-        }
-        // ... (altri schemi di mapping PM25, Level, ecc. come nel codice precedente)
-
-        if (!metrics.isEmpty()) {
-            SensorData sensorData = new SensorData(
-                    new Header(UUID.randomUUID(), Instant.now(), "sensors-ingestor", null, null),
-                    subjectId,
-                    node.path("status").asText("ok"),
-                    metrics
-            );
-
-            jmsTemplate.setPubSubDomain(true);
-            jmsTemplate.convertAndSend("sensors.topic", sensorData);
+            System.err.println("❌ [REST ERROR] " + sensorId + ": " + e.getMessage());
         }
     }
 
     @Bean
     public CommandLineRunner connectToWebSockets() {
         return args -> {
-            // Logica WebSocket (invariata)
             StandardWebSocketClient client = new StandardWebSocketClient();
-            String wsUrl = "ws://mars-simulator:8080/api/telemetry/ws?topic=mars/telemetry/solar_array";
-            // ... resto dell'implementazione WS
+            for (String topic : TELEMETRY_TOPICS) {
+                String wsUrl = "ws://mars-simulator:8080/api/telemetry/ws?topic=" + topic;
+                client.execute(new TextWebSocketHandler() {
+                    @Override
+                    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+                        processAndSend(mapper.readTree(message.getPayload()), topic);
+                    }
+                    @Override
+                    public void afterConnectionEstablished(WebSocketSession session) {
+                        System.out.println("✅ [WS] Subscribed to: " + topic);
+                    }
+                }, wsUrl);
+            }
         };
+    }
+
+    private void processAndSend(JsonNode node, String sourceId) {
+        // --- LOGICA DI SPLIT ---
+        // Pulisce l'ID (es: "mars/telemetry/solar_array" -> "solar_array")
+        String[] parts = sourceId.split("/");
+        String cleanSubjectId = parts[parts.length - 1];
+
+        // Se il JSON contiene un ID interno più specifico, usiamo quello (sempre splittato)
+        if (node.has("sensor_id")) {
+            String[] sParts = node.get("sensor_id").asText().split("/");
+            cleanSubjectId = sParts[sParts.length - 1];
+        }
+
+        List<Metric> metrics = new ArrayList<>();
+
+        // Logica di mapping (Scalari, Chimici, Power, ecc.)
+        if (node.has("value") && node.has("metric")) {
+            metrics.add(new Metric(node.get("metric").asText(), node.get("value").asDouble(), node.get("unit").asText("")));
+        } else if (node.has("measurements")) {
+            node.get("measurements").forEach(m -> metrics.add(new Metric(
+                    m.get("metric").asText(), m.get("value").asDouble(), m.get("unit").asText(""))));
+        } else if (node.has("power_kw")) {
+            metrics.add(new Metric("power", node.get("power_kw").asDouble(), "kW"));
+            metrics.add(new Metric("voltage", node.get("voltage_v").asDouble(), "V"));
+        } else if (node.has("pm25_ug_m3")) {
+            metrics.add(new Metric("pm25", node.get("pm25_ug_m3").asDouble(), "ug/m3"));
+        } else if (node.has("level_pct")) {
+            metrics.add(new Metric("level", node.get("level_pct").asDouble(), "%"));
+        } else if (node.has("temperature_c") && node.has("loop")) {
+            metrics.add(new Metric("temperature", node.get("temperature_c").asDouble(), "°C"));
+        } else if (node.has("cycles_per_hour")) {
+            metrics.add(new Metric("state", node.get("last_state").asText(), "status"));
+        }
+
+        if (!metrics.isEmpty()) {
+            SensorData sensorData = new SensorData(
+                    new Header(UUID.randomUUID(), Instant.now(), "sensors-ingestor", null, null),
+                    cleanSubjectId,
+                    node.path("status").asText("ok"),
+                    metrics
+            );
+
+            lastKnownState.put(cleanSubjectId, sensorData);
+            jmsTemplate.setPubSubDomain(true);
+            jmsTemplate.convertAndSend("sensors.topic", sensorData);
+            System.out.println("🚀 [INGESTOR] Dispatched: " + cleanSubjectId);
+        }
     }
 }
