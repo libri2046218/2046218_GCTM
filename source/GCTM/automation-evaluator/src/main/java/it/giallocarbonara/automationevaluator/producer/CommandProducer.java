@@ -1,15 +1,13 @@
 package it.giallocarbonara.automationevaluator.producer;
 
 import it.giallocarbonara.ActuatorCommand;
+import it.giallocarbonara.AutomRule;
 import it.giallocarbonara.Header;
-import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.entity.AutomationRule;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -36,11 +34,29 @@ public class CommandProducer {
                 action
                 );
 
-        jmsTemplate.convertAndSend("actuators.commands", actuatorCommand);
-        System.out.println("📤 Comando '" + action + "' inviato a actuators.commands");
+        jmsTemplate.convertAndSend("command.actuators.topic", actuatorCommand);
+        System.out.println("📤 Comando '" + action + "' inviato a command.actuators.topic");
     }
 
     public void sendRule(AutomationRule rule) {
-        jmsTemplate.convertAndSend("rulerequest.topic", rule);
+        AutomRule ruleSnapshot = new AutomRule(
+            new Header(
+                UUID.randomUUID(),
+                Instant.now(),
+                "automation-evaluator",
+                null,
+                "/topic/rules"
+            ),
+            rule.getSensorName(),
+            rule.getOperator(),
+            rule.getValue(),
+            rule.getActuatorName(),
+            rule.getActuatorState(),
+            rule.getManualOverride(),
+            false
+        );
+
+        jmsTemplate.setPubSubDomain(true);
+        jmsTemplate.convertAndSend("rulerequest.topic", ruleSnapshot);
     }
 }

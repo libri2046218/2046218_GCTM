@@ -79,7 +79,7 @@ public class AutomationService {
         for (AutomationRule rule : rules) {
             if(rule.getManualOverride() == Boolean.TRUE) {continue;}
             if (checkCondition(rule, sensorData.metrics().getFirst().value())) {
-                triggerAction(sensorData.sensor_id(), rule.getActuatorState());
+                triggerAction(rule.getActuatorName(), rule.getActuatorState());
             }
         }
 

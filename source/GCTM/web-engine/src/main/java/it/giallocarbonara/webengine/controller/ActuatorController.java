@@ -3,6 +3,7 @@ package it.giallocarbonara.webengine.controller;
 import it.giallocarbonara.ActuatorCommand;
 import it.giallocarbonara.AutomRule;
 import it.giallocarbonara.Header;
+import it.giallocarbonara.RefreshRequest;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.stereotype.Controller;
@@ -73,6 +74,23 @@ public class ActuatorController {
         logger.info("Actuator status sync request published to command.actuators.topic");
     }
 
+    @MessageMapping("/rules/sync")
+    public void requestRulesSync() {
+        RefreshRequest refreshRequest = new RefreshRequest(
+                new Header(
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        "web-engine",
+                        UUID.randomUUID().toString(),
+                        "/topic/rules"
+                )
+        );
+
+        jmsTemplate.setPubSubDomain(true);
+        jmsTemplate.convertAndSend("rulerequest.topic", refreshRequest);
+        logger.info("Rule snapshot sync request published to rulerequest.topic");
+    }
+
     /**
      * Handles WebSocket commands from the frontend and publishes ActuatorCommand to the broker.
      * Frontend sends: {actuatorId: "...", action: "ON"/"OFF"}
@@ -135,12 +153,46 @@ public class ActuatorController {
                 threshold,
                 actuator,
                 action,
-                false  // manualOverride = false (rule is enabled by default)
+                false,  // manualOverride = false (rule is enabled by default)
+                false
         );
 
         // Send to automation-evaluator via broker topic
         jmsTemplate.setPubSubDomain(true);
         jmsTemplate.convertAndSend("newrules.topic", automRule);
         logger.info("AutomRule published to newrules.topic: sensor={}, actuator={}", sensor, actuator);
+    }
+
+    @MessageMapping("/rules/delete")
+    public void handleRuleDeletion(Map<String, Object> ruleData) {
+        String sensor = (String) ruleData.get("sensor");
+        String operator = (String) ruleData.get("operator");
+        Double threshold = null;
+        if (ruleData.get("threshold") instanceof Number) {
+            threshold = ((Number) ruleData.get("threshold")).doubleValue();
+        }
+        String actuator = (String) ruleData.get("actuator");
+        String action = (String) ruleData.get("action");
+
+        AutomRule deleteRequest = new AutomRule(
+                new Header(
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        "web-engine",
+                        null,
+                        null
+                ),
+                sensor,
+                operator,
+                threshold,
+                actuator,
+                action,
+                false,
+                true
+        );
+
+        jmsTemplate.setPubSubDomain(true);
+        jmsTemplate.convertAndSend("newrules.topic", deleteRequest);
+        logger.info("Automation delete request published to newrules.topic: sensor={}, actuator={}", sensor, actuator);
     }
 }

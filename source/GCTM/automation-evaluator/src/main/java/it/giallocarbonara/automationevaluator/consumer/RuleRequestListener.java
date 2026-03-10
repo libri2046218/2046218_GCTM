@@ -1,8 +1,6 @@
 package it.giallocarbonara.automationevaluator.consumer;
 
-import it.giallocarbonara.AutomRule;
 import it.giallocarbonara.RefreshRequest;
-import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.service.AutomationService;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.stereotype.Component;
@@ -18,7 +16,13 @@ public class RuleRequestListener {
     }
 
     @JmsListener(destination = "rulerequest.topic")
-    public void onMessage(RefreshRequest request) {
+    public void onMessage(Object message) {
+        if (!(message instanceof RefreshRequest request)) {
+            System.out.println("[RuleRequestListener] Ignored non-refresh payload on rulerequest.topic: "
+                    + (message == null ? "null" : message.getClass().getName()));
+            return;
+        }
+
         // Log di monitoraggio
         System.out.println("Received rule request: " + request);
 

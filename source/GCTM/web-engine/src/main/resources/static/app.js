@@ -180,11 +180,23 @@ const stompClient = new window.StompJs.Client({
             handleActuatorStatus(data);
         });
 
+        stompClient.subscribe('/topic/rules', (message) => {
+            const data = JSON.parse(message.body);
+            console.log('🧠 Automation rule snapshot received:', data);
+            handleRuleSnapshot(data);
+        });
+
         // Request full actuator snapshot on every client reconnect/refresh.
         stompClient.publish({ destination: '/app/actuators/sync', body: JSON.stringify({ reason: 'page_refresh' }) });
 
         // Request full sensor snapshot on every client reconnect/refresh.
         stompClient.publish({ destination: '/app/sensors/sync', body: JSON.stringify({ reason: 'page_refresh' }) });
+
+        // Request automation rules snapshot on every client reconnect/refresh.
+        rules.length = 0;
+        renderRules();
+        updateStatsBadges();
+        stompClient.publish({ destination: '/app/rules/sync', body: JSON.stringify({ reason: 'page_refresh' }) });
     },
     onDisconnect: () => {
         document.getElementById('connection-status').innerHTML =
@@ -792,6 +804,47 @@ function toggleActuator(actuatorId, action) {
 // Backend (automation-evaluator) evaluates rules from database and triggers actions.
 const rules = [];
 
+function ruleKey(rule) {
+    return [rule.sensor, rule.operator, rule.threshold, rule.actuator, rule.action].join('|');
+}
+
+function upsertRule(localRule) {
+    const key = ruleKey(localRule);
+    const idx = rules.findIndex(r => ruleKey(r) === key);
+    if (idx >= 0) {
+        rules[idx] = { ...rules[idx], ...localRule };
+    } else {
+        rules.push(localRule);
+    }
+}
+
+function handleRuleSnapshot(ruleData) {
+    const sensor = ruleData?.sensorName || ruleData?.sensor;
+    const operator = ruleData?.operator;
+    const threshold = Number(ruleData?.value ?? ruleData?.threshold);
+    const actuator = ruleData?.actuatorName || ruleData?.actuator;
+    const action = ruleData?.actuatorState || ruleData?.action;
+
+    if (!sensor || !operator || Number.isNaN(threshold) || !actuator || !action) return;
+
+    const mappedRule = {
+        id: ruleData?.id || Date.now() + Math.random(),
+        name: `IF ${sensor.toUpperCase()} ${operator} ${threshold} THEN ${actuator} ${action}`,
+        sensor,
+        operator,
+        threshold,
+        actuator,
+        action,
+        text: `IF ${sensor.toUpperCase()} ${operator} ${threshold} THEN ${actuator} ${action}`,
+        enabled: true,
+        createdAt: new Date().toISOString()
+    };
+
+    upsertRule(mappedRule);
+    renderRules();
+    updateStatsBadges();
+}
+
 function getPrimaryMetricInfo(sensorId) {
     const sensor = state.sensorData[sensorId];
     if (!sensor || !sensor.metrics) return null;
@@ -939,8 +992,6 @@ function submitBuilderRule() {
         createdAt: new Date().toISOString()
     };
 
-    rules.push(rule);
-
     // Send rule to backend via message broker (newrules.topic)
     // Received by NewRulesListener in automation-evaluator
     stompClient.publish({
@@ -948,12 +999,19 @@ function submitBuilderRule() {
         body: JSON.stringify(rule)
     });
 
-    showRuleFeedback(feedback, 'success', 'Rule created!');
+    // Force authoritative refresh from backend after creation.
+    rules.length = 0;
+    renderRules();
+    updateStatsBadges();
+    stompClient.publish({
+        destination: '/app/rules/sync',
+        body: JSON.stringify({ reason: 'after_rule_add' })
+    });
+
+    showRuleFeedback(feedback, 'success', 'Rule created. Refreshing list from server...');
     showToast('Rule created: ' + ruleText, 'success');
     addLog('rule', 'New rule: ' + ruleText);
     resetRuleBuilder();
-    renderRules();
-    updateStatsBadges();
 }
 
 function showRuleFeedback(el, type, msg) {
@@ -1016,12 +1074,26 @@ function renderRules() {
 
 function deleteRule(idx) {
     if (rules[idx]) {
-        const name = rules[idx].name;
-        // Note: Deletes from frontend only. Backend keeps rules in database.
+        const rule = rules[idx];
+        const name = rule.name;
+
+        // Send delete request to backend (newrules.topic with deletionReq=true)
+        stompClient.publish({
+            destination: '/app/rules/delete',
+            body: JSON.stringify({
+                sensor: rule.sensor,
+                operator: rule.operator,
+                threshold: rule.threshold,
+                actuator: rule.actuator,
+                action: rule.action
+            })
+        });
+
         rules.splice(idx, 1);
         renderRules();
         updateStatsBadges();
         addLog('rule', `Rule "${name}" deleted`);
+        showToast(`Rule deleted: ${name}`, 'info');
     }
 }
 

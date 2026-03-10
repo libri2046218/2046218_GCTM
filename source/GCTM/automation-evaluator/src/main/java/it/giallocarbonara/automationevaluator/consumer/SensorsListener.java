@@ -1,7 +1,6 @@
 package it.giallocarbonara.automationevaluator.consumer;
 
 import it.giallocarbonara.SensorData;
-import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.service.AutomationService;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.stereotype.Component;

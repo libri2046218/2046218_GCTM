@@ -1,6 +1,7 @@
 package it.giallocarbonara.webengine.service;
 
 import it.giallocarbonara.ActuatorStatus;
+import it.giallocarbonara.AutomRule;
 import it.giallocarbonara.SensorData;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -57,6 +58,27 @@ public class TelemetryBridge {
             logger.trace("Actuator status routed to /topic/actuators/status");
         } catch (Exception e) {
             logger.error("Error forwarding actuator status to WebSocket", e);
+        }
+    }
+
+    /**
+     * Listens to automation rule snapshots from the broker and forwards to WebSocket clients.
+     * The same JMS topic also carries RefreshRequest messages, which are ignored here.
+     */
+    @JmsListener(destination = "rulerequest.topic", subscription = "web-engine-rules")
+    public void onRuleSnapshotMessage(Object message) {
+        if (!(message instanceof AutomRule rule)) {
+            logger.trace("Ignored non-rule message on rulerequest.topic: {}", message == null ? "null" : message.getClass().getName());
+            return;
+        }
+
+        logger.debug("Received automation rule snapshot: sensor={}, actuator={}", rule.sensorName(), rule.actuatorName());
+
+        try {
+            messagingTemplate.convertAndSend("/topic/rules", rule);
+            logger.trace("Automation rule routed to /topic/rules");
+        } catch (Exception e) {
+            logger.error("Error forwarding automation rule to WebSocket", e);
         }
     }
 }
