@@ -182,6 +182,9 @@ const stompClient = new window.StompJs.Client({
 
         // Request full actuator snapshot on every client reconnect/refresh.
         stompClient.publish({ destination: '/app/actuators/sync', body: JSON.stringify({ reason: 'page_refresh' }) });
+
+        // Request full sensor snapshot on every client reconnect/refresh.
+        stompClient.publish({ destination: '/app/sensors/sync', body: JSON.stringify({ reason: 'page_refresh' }) });
     },
     onDisconnect: () => {
         document.getElementById('connection-status').innerHTML =

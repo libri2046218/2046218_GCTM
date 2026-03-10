@@ -23,6 +23,19 @@ public class ActuatorController {
         this.jmsTemplate = jmsTemplate;
     }
 
+        @MessageMapping("/sensors/sync")
+        public void requestSensorsSync() {
+                Map<String, Object> syncRequest = Map.of(
+                                "action", "STATUS_SYNC",
+                                "origin", "web-engine",
+                                "reason", "page_refresh"
+                );
+
+                jmsTemplate.setPubSubDomain(true);
+                jmsTemplate.convertAndSend("command.sensors.topic", syncRequest);
+                logger.info("Sensor status sync request published to command.sensors.topic");
+        }
+
     @MessageMapping("/actuators/sync")
     public void requestActuatorsSync() {
         ActuatorCommand syncRequest = new ActuatorCommand(

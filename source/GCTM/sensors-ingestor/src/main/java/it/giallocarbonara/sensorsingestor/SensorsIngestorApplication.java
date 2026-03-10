@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import it.giallocarbonara.Header;
 import it.giallocarbonara.Metric;
 import it.giallocarbonara.SensorData;
-import it.giallocarbonara.UnifiedEnvelope;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
+import org.springframework.jms.annotation.JmsListener;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,21 +24,31 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @SpringBootApplication(scanBasePackages = "it.giallocarbonara")
 @EnableScheduling
 public class SensorsIngestorApplication {
 
+    private static final String SENSORS_BASE_URL = "http://mars-simulator:8080/api/sensors";
+
+    private static final List<String> STATIC_SENSOR_ENDPOINTS = List.of(
+        "greenhouse_temperature", "entrance_humidity", "co2_hall",
+        "hydroponic_ph", "water_tank_level", "corridor_pressure",
+        "air_quality_pm25", "air_quality_voc"
+    );
+
+    private static final List<String> TELEMETRY_TOPICS = List.of(
+        "mars/telemetry/solar_array", "mars/telemetry/radiation",
+        "mars/telemetry/life_support", "mars/telemetry/thermal_loop",
+        "mars/telemetry/power_bus", "mars/telemetry/power_consumption",
+        "mars/telemetry/airlock"
+    );
+
     private final JmsTemplate jmsTemplate;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper mapper = new ObjectMapper();
-
-    private final List<String> sensorEndpoints = List.of(
-            "greenhouse_temperature", "entrance_humidity", "co2_hall",
-            "hydroponic_ph", "water_tank_level", "corridor_pressure",
-            "air_quality_pm25", "air_quality_voc"
-    );
 
     public SensorsIngestorApplication(JmsTemplate jmsTemplate) {
         this.jmsTemplate = jmsTemplate;
@@ -46,18 +58,68 @@ public class SensorsIngestorApplication {
         SpringApplication.run(SensorsIngestorApplication.class, args);
     }
 
+    @JmsListener(destination = "command.sensors.topic", subscription = "sensors-ingestor-sync")
+    public void onSensorsSyncRequest(Map<String, Object> command) {
+        String action = String.valueOf(command.getOrDefault("action", ""));
+        if ("STATUS_SYNC".equalsIgnoreCase(action)) {
+            System.out.println("[SYNC] Received STATUS_SYNC request. Broadcasting sensor snapshot...");
+            broadcastInitialSensorStatus();
+        }
+    }
+
+    /**
+     * AZIONE RICHIESTA: Chiamata REST GET api/sensors generica all'avvio.
+     * Recupera l'elenco di tutti i sensori disponibili e ne pubblica lo stato iniziale.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void broadcastInitialSensorStatus() {
+        try {
+            System.out.println("🔍 [STARTUP] Recupero elenco sensori da " + SENSORS_BASE_URL);
+
+            // 1. Chiamata GET generica per ottenere la lista dei sensori
+            JsonNode sensorList = restTemplate.getForObject(SENSORS_BASE_URL, JsonNode.class);
+
+            if (sensorList != null && sensorList.isArray()) {
+                System.out.println("📡 [STARTUP] Trovati " + sensorList.size() + " sensori. Inizio broadcast...");
+
+                // 2. Iterazione sulla lista restituita dal simulatore
+                for (JsonNode s : sensorList) {
+                    String sensorName = s.asText();
+                    fetchAndProcessSingleSensor(sensorName);
+                }
+                System.out.println("✅ [STARTUP] Broadcast iniziale completato.");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ [STARTUP ERROR] Impossibile recuperare lista sensori: " + e.getMessage());
+        }
+    }
+
+    @Scheduled(fixedRate = 5000)
+    public void scheduledFetch() {
+        STATIC_SENSOR_ENDPOINTS.forEach(this::fetchAndProcessSingleSensor);
+    }
+
+    /**
+     * Helper per recuperare i dati di un singolo sensore e inviarli al broker.
+     */
+    private void fetchAndProcessSingleSensor(String endpoint) {
+        try {
+            String url = SENSORS_BASE_URL + "/" + endpoint;
+            String jsonRaw = restTemplate.getForObject(url, String.class);
+            if (jsonRaw != null) {
+                JsonNode root = mapper.readTree(jsonRaw);
+                processAndSend(root, endpoint);
+            }
+        } catch (Exception e) {
+            System.err.println("❌ [FETCH ERROR] " + endpoint + ": " + e.getMessage());
+        }
+    }
+
     @Bean
     public CommandLineRunner connectToWebSockets() {
         return args -> {
             StandardWebSocketClient client = new StandardWebSocketClient();
-            List<String> topics = List.of(
-                    "mars/telemetry/solar_array", "mars/telemetry/radiation",
-                    "mars/telemetry/life_support", "mars/telemetry/thermal_loop",
-                    "mars/telemetry/power_bus", "mars/telemetry/power_consumption",
-                    "mars/telemetry/airlock"
-            );
-
-            for (String topic : topics) {
+            for (String topic : TELEMETRY_TOPICS) {
                 String wsUrl = "ws://mars-simulator:8080/api/telemetry/ws?topic=" + topic;
                 client.execute(new TextWebSocketHandler() {
                     @Override
@@ -72,20 +134,6 @@ public class SensorsIngestorApplication {
                 }, wsUrl);
             }
         };
-    }
-
-    @Scheduled(fixedRate = 5000)
-    public void fetchAndSendSensorData() {
-        for (String endpoint : sensorEndpoints) {
-            try {
-                String url = "http://mars-simulator:8080/api/sensors/" + endpoint;
-                String jsonRaw = restTemplate.getForObject(url, String.class);
-                JsonNode root = mapper.readTree(jsonRaw);
-                if (root != null) processAndSend(root, endpoint);
-            } catch (Exception e) {
-                System.err.println("❌ [REST ERROR] " + endpoint + ": " + e.getMessage());
-            }
-        }
     }
 
     private void processAndSend(JsonNode node, String sourceId) {
