@@ -103,6 +103,8 @@ services:
     environment:
       - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
     depends_on:
+      db-postgres-automation:
+        condition: service_healthy
       mars-simulator:
         condition: service_started
       activemq-broker:
