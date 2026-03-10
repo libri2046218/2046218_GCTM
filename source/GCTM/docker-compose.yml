@@ -45,18 +45,6 @@ services:
   #   networks:
   #     - mars-network
 
-  # kibana:
-  #   image: docker.elastic.co/kibana/kibana:8.17.0
-  #   container_name: kibana
-  #   ports:
-  #     - "5601:5601"
-  #   environment:
-  #     - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-  #   depends_on:
-  #     elasticsearch:
-  #       condition: service_healthy
-  #   networks:
-  #     - mars-network
   db-postgres-automation:
     image: postgres:15-alpine
     container_name: db-postgres-automation
@@ -75,7 +63,7 @@ services:
       retries: 5
     networks:
       - mars-network
-      
+
   # --- MICROSERVIZI DI BACKEND ---
   sensors-ingestor:
     build:
@@ -108,6 +96,8 @@ services:
       mars-simulator:
         condition: service_started
       activemq-broker:
+        condition: service_healthy
+      db-postgres-automation:
         condition: service_healthy
     networks:
       - mars-network
