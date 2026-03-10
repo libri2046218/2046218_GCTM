@@ -39,4 +39,8 @@ public class CommandProducer {
         jmsTemplate.convertAndSend("actuators.commands", actuatorCommand);
         System.out.println("📤 Comando '" + action + "' inviato a actuators.commands");
     }
+
+    public void sendRule(AutomationRule rule) {
+        jmsTemplate.convertAndSend("rulerequest.topic", rule);
+    }
 }

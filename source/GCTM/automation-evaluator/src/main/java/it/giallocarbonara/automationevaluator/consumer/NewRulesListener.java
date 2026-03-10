@@ -17,9 +17,16 @@ public class NewRulesListener {
     @JmsListener(destination = "newrules.topic")
     public void onMessage(AutomRule rule) {
         // Log di monitoraggio
-        System.out.println(rule.header().msg_id());
+        System.out.println("[NewRulesListener] Received rule: " + rule.header().msg_id());
+
+        if (Boolean.TRUE.equals(rule.deletionReq())) {
+            System.out.println("[NewRulesListener] Processing deletion request for rule: " + rule.sensorName());
+            automationService.deleteRule(rule);
+            return;
+        }
 
         // Passiamo l'intero oggetto al servizio per la valutazione
+        System.out.println("[NewRulesListener] Creating new rule: " + rule.sensorName());
         automationService.createNewRule(rule);
     }
 }

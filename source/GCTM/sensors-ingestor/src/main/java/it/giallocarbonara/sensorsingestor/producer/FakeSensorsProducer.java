@@ -10,7 +10,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
@@ -20,6 +22,10 @@ public class FakeSensorsProducer {
 
     private final JmsTemplate jmsTemplate;
     private final Random random = new Random();
+
+    // Track generated rules for automatic deletion: ruleId -> (AutomRule, creationTime)
+    private final Map<UUID, RuleContext> generatedRules = new HashMap<>();
+    private static final long DELETION_DELAY_MS = 10000L; // Delete after 10 seconds
 
     private final List<SensorConfig> sensorConfigs = List.of(
             new SensorConfig("greenhouse_temperature", "temperature", "°C", 15.0, 35.0),
@@ -68,21 +74,83 @@ public class FakeSensorsProducer {
                 roundedValue,
                 actuatorName,
                 actuatorState,
-                manualOverride
+                manualOverride,
+                false
         );
 
         // Send to the Topic for rules ingestion
         jmsTemplate.convertAndSend("newrules.topic", rule);
 
+        // Track this rule for automatic deletion
+        UUID ruleId = rule.header().msg_id();
+        generatedRules.put(ruleId, new RuleContext(rule, System.currentTimeMillis()));
+
         // Log the generated rule in a readable format
-        System.out.printf("🛠️ [SENDER] Rule-ID: %s | Created Rule: IF %s %s %.2f THEN SET %s TO %s (Override: %b)%n",
-                rule.header().msg_id(),
+        System.out.printf("🛠️ [SENDER] Rule-ID: %s | Created Rule: IF %s %s %.2f THEN SET %s TO %s (Override: %b) [Will delete in %dms]%n",
+                ruleId,
                 sensorName,
                 operator,
                 roundedValue,
                 actuatorName,
                 actuatorState,
-                manualOverride);
+                manualOverride,
+                DELETION_DELAY_MS);
+    }
+
+    @Scheduled(fixedRate = 2000)
+    public void checkAndDeleteExpiredRules() {
+        long now = System.currentTimeMillis();
+        
+        // Collect expired rule IDs first to avoid ConcurrentModificationException
+        List<UUID> expiredRuleIds = new java.util.ArrayList<>();
+        
+        for (var entry : generatedRules.entrySet()) {
+            if ((now - entry.getValue().createdAt) > DELETION_DELAY_MS) {
+                expiredRuleIds.add(entry.getKey());
+            }
+        }
+        
+        // Now process the expired rules
+        for (UUID ruleId : expiredRuleIds) {
+            RuleContext context = generatedRules.get(ruleId);
+            if (context != null) {
+                AutomRule originalRule = context.rule;
+
+                // Create a deletion request with the same parameters
+                AutomRule deleteRequest = new AutomRule(
+                    new Header(
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        "fake-rules-generator-delete",
+                        null,
+                        null
+                    ),
+                    originalRule.sensorName(),
+                    originalRule.operator(),
+                    originalRule.value(),
+                    originalRule.actuatorName(),
+                    originalRule.actuatorState(),
+                    originalRule.manualOverride(),
+                    true
+                );
+
+                // Send deletion request
+                jmsTemplate.convertAndSend("newrules.topic", deleteRequest);
+                
+                System.out.printf("🗑️ [SENDER] Deletion Request-ID: %s | Deleting Rule-ID: %s | " +
+                        "IF %s %s %.2f THEN SET %s TO %s%n",
+                        deleteRequest.header().msg_id(),
+                        ruleId,
+                        originalRule.sensorName(),
+                        originalRule.operator(),
+                        originalRule.value(),
+                        originalRule.actuatorName(),
+                        originalRule.actuatorState()
+                );
+
+                generatedRules.remove(ruleId);
+            }
+        }
     }
 
     @Scheduled(fixedRate = 1000)
@@ -115,6 +183,7 @@ public class FakeSensorsProducer {
 
     private record SensorConfig(String subjectId, String metricName, String unit, double min, double max) {}
 
+    private record RuleContext(AutomRule rule, long createdAt) {}
 
 }
 

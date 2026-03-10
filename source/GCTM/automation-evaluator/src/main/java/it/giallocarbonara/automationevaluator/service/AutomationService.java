@@ -1,7 +1,6 @@
 package it.giallocarbonara.automationevaluator.service;
 
 import it.giallocarbonara.AutomRule;
-import it.giallocarbonara.Metric;
 import it.giallocarbonara.SensorData;
 import it.giallocarbonara.automationevaluator.entity.AutomationRule;
 import it.giallocarbonara.automationevaluator.producer.CommandProducer;
@@ -30,6 +29,48 @@ public class AutomationService {
         Boolean manualOverride = rule.manualOverride();
         AutomationRule newRule = new AutomationRule(null, sensorName, operator, value, actuatorName, actuatorState, manualOverride);
         ruleRepository.save(newRule);
+    }
+
+
+    public void deleteRule(AutomRule rule) {
+        String sensorName = rule.sensorName();
+        String operator = rule.operator();
+        Double value = rule.value();
+        String actuatorName = rule.actuatorName();
+        String actuatorState = rule.actuatorState();
+        Boolean manualOverride = rule.manualOverride();
+
+        System.out.println("[AutomationService] ⚠️ DELETE REQUEST RECEIVED: " +
+            "IF " + sensorName + " " + operator + " " + value + " THEN SET " + actuatorName + " TO " + actuatorState);
+
+        List<AutomationRule> rulesToDelete = ruleRepository
+            .findBySensorNameAndOperatorAndValueAndActuatorNameAndActuatorStateAndManualOverride(
+                sensorName,
+                operator,
+                value,
+                actuatorName,
+                actuatorState,
+                manualOverride
+            );
+
+        System.out.println("[AutomationService] Found " + rulesToDelete.size() + " rule(s) matching deletion criteria");
+
+        for (AutomationRule r : rulesToDelete) {
+            System.out.println("[AutomationService] 🗑️ Deleting Rule ID: " + r.getId() + 
+                " | Sensor: " + r.getSensorName() + ", Operator: " + r.getOperator() + 
+                ", Value: " + r.getValue());
+            ruleRepository.delete(r);
+        }
+
+        System.out.println("[AutomationService] ✅ Deletion completed. " + rulesToDelete.size() + " rule(s) deleted");
+    }
+
+    public void fetchRules() {
+        List<AutomationRule> rules = ruleRepository.findAll();
+        for (AutomationRule rule : rules) {
+            commandProducer.sendRule(rule);
+        }
+
     }
 
     public void evaluate(SensorData sensorData) {
