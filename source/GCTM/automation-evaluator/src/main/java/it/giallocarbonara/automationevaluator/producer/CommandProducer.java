@@ -47,6 +47,7 @@ public class CommandProducer {
                 null,
                 "/topic/rules"
             ),
+            rule.getId(),
             rule.getSensorName(),
             rule.getOperator(),
             rule.getValue(),
@@ -57,6 +58,6 @@ public class CommandProducer {
         );
 
         jmsTemplate.setPubSubDomain(true);
-        jmsTemplate.convertAndSend("rulerequest.topic", ruleSnapshot);
+        jmsTemplate.convertAndSend("ruleresponse.topic", ruleSnapshot);
     }
 }

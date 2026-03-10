@@ -65,17 +65,17 @@ public class TelemetryBridge {
      * Listens to automation rule snapshots from the broker and forwards to WebSocket clients.
      * The same JMS topic also carries RefreshRequest messages, which are ignored here.
      */
-    @JmsListener(destination = "rulerequest.topic", subscription = "web-engine-rules")
-    public void onRuleSnapshotMessage(Object message) {
-        if (!(message instanceof AutomRule rule)) {
-            logger.trace("Ignored non-rule message on rulerequest.topic: {}", message == null ? "null" : message.getClass().getName());
+    @JmsListener(destination = "ruleresponse.topic", subscription = "web-engine-rules")
+    public void onRuleSnapshotMessage(AutomRule message) {
+        if (!(message instanceof AutomRule)) {
+            logger.trace("Ignored non-rule message on ruleresponse.topic: {}", message == null ? "null" : message.getClass().getName());
             return;
         }
 
-        logger.debug("Received automation rule snapshot: sensor={}, actuator={}", rule.sensorName(), rule.actuatorName());
+        logger.debug("Received automation rule snapshot: sensor={}, actuator={}", message.sensorName(), message.actuatorName());
 
         try {
-            messagingTemplate.convertAndSend("/topic/rules", rule);
+            messagingTemplate.convertAndSend("/topic/rules", message);
             logger.trace("Automation rule routed to /topic/rules");
         } catch (Exception e) {
             logger.error("Error forwarding automation rule to WebSocket", e);

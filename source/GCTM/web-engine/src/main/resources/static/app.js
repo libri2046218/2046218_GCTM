@@ -805,6 +805,9 @@ function toggleActuator(actuatorId, action) {
 const rules = [];
 
 function ruleKey(rule) {
+    if (rule.id !== undefined && rule.id !== null) {
+        return `id:${rule.id}`;
+    }
     return [rule.sensor, rule.operator, rule.threshold, rule.actuator, rule.action].join('|');
 }
 
@@ -828,7 +831,7 @@ function handleRuleSnapshot(ruleData) {
     if (!sensor || !operator || Number.isNaN(threshold) || !actuator || !action) return;
 
     const mappedRule = {
-        id: ruleData?.id || Date.now() + Math.random(),
+        id: ruleData?.id ?? null,
         name: `IF ${sensor.toUpperCase()} ${operator} ${threshold} THEN ${actuator} ${action}`,
         sensor,
         operator,
@@ -992,6 +995,11 @@ function submitBuilderRule() {
         createdAt: new Date().toISOString()
     };
 
+    // Add rule to local state immediately for instant visual feedback
+    upsertRule(rule);
+    renderRules();
+    updateStatsBadges();
+
     // Send rule to backend via message broker (newrules.topic)
     // Received by NewRulesListener in automation-evaluator
     stompClient.publish({
@@ -999,16 +1007,7 @@ function submitBuilderRule() {
         body: JSON.stringify(rule)
     });
 
-    // Force authoritative refresh from backend after creation.
-    rules.length = 0;
-    renderRules();
-    updateStatsBadges();
-    stompClient.publish({
-        destination: '/app/rules/sync',
-        body: JSON.stringify({ reason: 'after_rule_add' })
-    });
-
-    showRuleFeedback(feedback, 'success', 'Rule created. Refreshing list from server...');
+    showRuleFeedback(feedback, 'success', 'Rule created and sent to server...');
     showToast('Rule created: ' + ruleText, 'success');
     addLog('rule', 'New rule: ' + ruleText);
     resetRuleBuilder();
