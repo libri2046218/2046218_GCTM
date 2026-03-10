@@ -35,7 +35,6 @@ public class AutomationService {
     public void evaluate(SensorData sensorData) {
 
         List<AutomationRule> rules = ruleRepository.findBySensorNameIgnoreCase(sensorData.sensor_id());
-        System.out.println("RULES: " + rules.toString());
         for (AutomationRule rule : rules) {
             if(rule.getManualOverride() == Boolean.TRUE) {continue;}
             if (checkCondition(rule, sensorData.metrics().getFirst().value())) {
