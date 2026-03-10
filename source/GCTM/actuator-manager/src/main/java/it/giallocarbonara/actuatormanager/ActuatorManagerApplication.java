@@ -3,7 +3,8 @@ package it.giallocarbonara.actuatormanager;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+
+@SpringBootApplication(scanBasePackages = "it.giallocarbonara")
 public class ActuatorManagerApplication {
 
     public static void main(String[] args) {
