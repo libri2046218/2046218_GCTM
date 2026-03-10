@@ -9,3 +9,12 @@ spring:
     broker-url: tcp://activemq-broker:61616
     user: admin
     password: admin
+    packages:
+      trusted: "it.giallocarbonara, java.util, java.lang"
+
+  threads:
+    virtual:
+      enabled: true  # Java 25 Power-up! ⚡
+
+    elasticsearch:
+      uris: http://elasticsearch:9200
