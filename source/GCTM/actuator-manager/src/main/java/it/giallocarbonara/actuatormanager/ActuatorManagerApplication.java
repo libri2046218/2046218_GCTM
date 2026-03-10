@@ -2,6 +2,9 @@ package it.giallocarbonara.actuatormanager;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper; // Fondamentale per risolvere l'errore mapper
+import it.giallocarbonara.ActuatorCommand;
+import it.giallocarbonara.ActuatorStatus;
+import it.giallocarbonara.Header;
 import it.giallocarbonara.UnifiedEnvelope;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -49,22 +52,6 @@ public class ActuatorManagerApplication {
         }
     }
 
-    @Scheduled(fixedRate = 2000)
-    public void autoTestActuators() {
-        String target = "cooling_fan";
-        String state = Math.random() > 0.5 ? "ON" : "OFF";
-
-        System.out.println("🧪 [AUTO-TEST] Sending RPC: " + target + " -> " + state);
-
-        UnifiedEnvelope testReq = new UnifiedEnvelope(
-                new UnifiedEnvelope.Header(UUID.randomUUID(), Instant.now(), UnifiedEnvelope.MsgType.RPC_REQUEST, "self-test", null, null),
-                new UnifiedEnvelope.Payload(target, UnifiedEnvelope.Status.ok, List.of(new UnifiedEnvelope.Metric("state", state, "bool")), null)
-        );
-
-        jmsTemplate.setPubSubDomain(true);
-        jmsTemplate.convertAndSend("actuators.topic", testReq);
-    }
-
     @Bean
     public RestTemplate restTemplate() {
         return new RestTemplate();
@@ -83,19 +70,13 @@ class ActuatorService {
         this.jmsTemplate = jmsTemplate;
     }
 
-    @JmsListener(destination = "actuators.topic")
-    public void handleCommand(UnifiedEnvelope request) {
-        // Gestiamo solo le Request
-        if (request.header().msg_type() != UnifiedEnvelope.MsgType.RPC_REQUEST) return;
+    @JmsListener(destination = "command.actuators.topic")
+    public void handleCommand(ActuatorCommand request) {
 
-        String actuatorName = request.payload().subject_id();
+        String actuatorName = request.actuator_id();
 
         // Estrazione sicura dello stato dalle metriche
-        String newState = request.payload().metrics().stream()
-                .filter(m -> m.name().equalsIgnoreCase("state") || m.name().equalsIgnoreCase("value"))
-                .map(m -> m.value().toString().toUpperCase())
-                .findFirst()
-                .orElse("OFF");
+        String newState = request.desired_state();
 
         try {
             // Chiamata POST al simulatore
@@ -104,34 +85,35 @@ class ActuatorService {
 
             System.out.println("⚙️ [ACTUATOR] Success: " + actuatorName + " is now " + newState);
 
-            // Invio Risposta di successo
-            sendResponse(request, UnifiedEnvelope.Status.SUCCESS, "Actuator " + actuatorName + " set to " + newState);
-
         } catch (Exception e) {
             System.err.println("❌ [ACTUATOR ERROR] " + e.getMessage());
-            sendResponse(request, UnifiedEnvelope.Status.FAILED, e.getMessage());
         }
+
+        checkStatus(actuatorName, null, null);
+        //TODO: da migliorare inserendo correlationId e requester ma solo dopo aver modificato in tutte le branch il DTO dell'header
     }
 
-    private void sendResponse(UnifiedEnvelope request, UnifiedEnvelope.Status status, String info) {
-        UnifiedEnvelope response = new UnifiedEnvelope(
-                new UnifiedEnvelope.Header(
+    //@Fede chiamami che ti spiego (sia checkstatus che topics) -@PF
+    public void checkStatus(String actuatorId, String correlationId, String requester) {
+        //TODO: Chiamata per raccogliere lo stato dell'attuatore
+        String actual_state = null;
+        Instant updated_at = null;
+
+        ActuatorStatus status = new ActuatorStatus(
+                new Header(
                         UUID.randomUUID(),
                         Instant.now(),
-                        UnifiedEnvelope.MsgType.RPC_RESPONSE,
                         "actuator-manager",
-                        request.header().msg_id().toString(), // Correlation ID per il chiamante
-                        null
+                        correlationId,
+                        requester
                 ),
-                new UnifiedEnvelope.Payload(
-                        request.payload().subject_id(),
-                        status,
-                        List.of(new UnifiedEnvelope.Metric("info", info, "text")),
-                        null
-                )
+                actuatorId,
+                actual_state,
+                updated_at
         );
 
         jmsTemplate.setPubSubDomain(true);
-        jmsTemplate.convertAndSend("actuators.topic", response);
+        jmsTemplate.convertAndSend("status.actuators.topic", status);
+
     }
 }

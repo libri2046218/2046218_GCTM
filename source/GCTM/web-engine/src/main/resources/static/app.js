@@ -169,15 +169,15 @@ const stompClient = new window.StompJs.Client({
         showToast('Connected to telemetry stream', 'success');
 
         stompClient.subscribe('/topic/sensors', (message) => {
-            handleSensorDiscovery(JSON.parse(message.body));
+            const data = JSON.parse(message.body);
+            console.log('📊 Sensor message received:', data);
+            handleSensorDiscovery(data);
         });
 
-        stompClient.subscribe('/topic/actuators', (message) => {
-            handleActuatorDiscovery(JSON.parse(message.body));
-        });
-
-        stompClient.subscribe('/topic/actuators/response', (message) => {
-            handleActuatorDiscovery(JSON.parse(message.body));
+        stompClient.subscribe('/topic/actuators/status', (message) => {
+            const data = JSON.parse(message.body);
+            console.log('🔌 Actuator status received:', data);
+            handleActuatorStatus(data);
         });
     },
     onDisconnect: () => {
@@ -203,10 +203,10 @@ function nextColor() {
     return CHART_COLORS[colorIdx++ % CHART_COLORS.length];
 }
 
-function handleSensorDiscovery(envelope) {
-    // FIX: use payload.subject_id (actual sensor name) instead of header.origin ("sensors-ingestor")
-    const sensorId = envelope.payload?.subject_id || envelope.header.origin;
-    const timestamp = envelope.header.timestamp;
+function handleSensorDiscovery(sensorData) {
+    // SensorData structure: { header, sensor_id, status, metrics[] }
+    const sensorId = sensorData.sensor_id;
+    const timestamp = sensorData.header.timestamp;
     const isNew = !state.knownSensors.has(sensorId);
 
     if (isNew) {
@@ -219,7 +219,7 @@ function handleSensorDiscovery(envelope) {
         state.sensorData[sensorId] = { metrics: {}, status: 'ok', lastUpdate: timestamp };
     }
     state.sensorData[sensorId].lastUpdate = timestamp;
-    state.sensorData[sensorId].status = envelope.payload?.status || 'ok';
+    state.sensorData[sensorId].status = sensorData.status || 'ok';
 
     // US11: track message rate
     state.networkStats.messagesReceived++;
@@ -228,8 +228,8 @@ function handleSensorDiscovery(envelope) {
     const cutoff = Date.now() - 60000;
     state.networkStats.messageTimestamps = state.networkStats.messageTimestamps.filter(t => t > cutoff);
 
-    if (envelope.payload && envelope.payload.metrics) {
-        envelope.payload.metrics.forEach(metric => {
+    if (sensorData.metrics && sensorData.metrics.length > 0) {
+        sensorData.metrics.forEach(metric => {
             state.sensorData[sensorId].metrics[metric.name] = {
                 value: metric.value,
                 unit: metric.unit
@@ -240,7 +240,7 @@ function handleSensorDiscovery(envelope) {
             state.sensors[sensorKey] = {
                 value: metric.value,
                 unit: metric.unit,
-                status: envelope.payload.status,
+                status: sensorData.status,
                 lastUpdate: timestamp,
                 origin: sensorId
             };
@@ -265,11 +265,10 @@ function handleSensorDiscovery(envelope) {
     scheduleRender();
 }
 
-function handleActuatorDiscovery(envelope) {
-    // Use payload.subject_id as actuator identifier (matches actuator-manager RPC convention)
-    const actuatorId = envelope.payload?.subject_id || envelope.header.origin;
-    const msgType = envelope.header?.msg_type;
-    const timestamp = envelope.header.timestamp;
+function handleActuatorStatus(actuatorStatus) {
+    // ActuatorStatus structure: { header, actuator_id, actual_state, updated_at }
+    const actuatorId = actuatorStatus.actuator_id;
+    const timestamp = actuatorStatus.header.timestamp;
     const isNew = !state.knownActuators.has(actuatorId);
 
     if (isNew) {
@@ -278,85 +277,23 @@ function handleActuatorDiscovery(envelope) {
         showToast(`Actuator discovered: ${actuatorId}`, 'info');
     }
 
-    // Handle RPC_RESPONSE — command feedback from actuator-manager
-    if (msgType === 'RPC_RESPONSE') {
-        const status = envelope.payload?.status;
-        const info = envelope.payload?.metrics?.[0]?.value || '';
+    // Get the actual state from the message
+    const actuatorState = actuatorStatus.actual_state || 'UNKNOWN';
+    const previousState = state.actuators[actuatorId]?.state;
 
-        if (status === 'SUCCESS') {
-            // Extract confirmed state from response info
-            const stateMatch = String(info).match(/set to (ON|OFF)/i);
-            const previousState = state.actuators[actuatorId]?.state;
-            const newState = stateMatch ? stateMatch[1].toUpperCase() : previousState;
-
-            // Only notify if the state actually changed
-            if (newState !== previousState) {
-                showToast(`${actuatorId}: ${info}`, 'success');
-                addLog('command', `${actuatorId}: ${info}`);
-            }
-
-            if (stateMatch) {
-                state.actuators[actuatorId] = {
-                    ...state.actuators[actuatorId],
-                    state: newState,
-                    lastUpdate: timestamp,
-                    pending: false
-                };
-            }
-        } else {
-            showToast(`${actuatorId} command failed: ${info}`, 'error');
-            addLog('alert', `${actuatorId} command failed: ${info}`);
-            if (state.actuators[actuatorId]) {
-                state.actuators[actuatorId].pending = false;
-            }
-        }
-        updateStatsBadges();
-        renderActuators();
-        return;
-    }
-
-    // Handle RPC_REQUEST — command issued, optimistic state update
-    if (msgType === 'RPC_REQUEST') {
-        let requestedState = 'OFF';
-        if (envelope.payload?.metrics) {
-            const stateMetric = envelope.payload.metrics.find(
-                m => m.name === 'state' || m.name === 'value'
-            );
-            if (stateMetric) requestedState = String(stateMetric.value).toUpperCase();
-        }
-        state.actuators[actuatorId] = {
-            ...state.actuators[actuatorId],
-            state: requestedState,
-            lastUpdate: timestamp,
-            metrics: envelope.payload?.metrics || [],
-            pending: true
-        };
-        updateStatsBadges();
-        renderActuators();
-        return;
-    }
-
-    // Handle TELEMETRY or other message types (standard discovery)
-    let actuatorState = 'OFF';
-    let lastMetrics = [];
-    if (envelope.payload) {
-        if (envelope.payload.metadata && envelope.payload.metadata.actuator_state != null) {
-            actuatorState = envelope.payload.metadata.actuator_state;
-        }
-        if (envelope.payload.metrics && envelope.payload.metrics.length > 0) {
-            lastMetrics = envelope.payload.metrics;
-        }
-        if (envelope.payload.status === 'ok' || envelope.payload.status === 'SUCCESS') {
-            actuatorState = envelope.payload.metadata?.actuator_state || actuatorState;
-        }
-    }
-
+    // Update state
     state.actuators[actuatorId] = {
         state: actuatorState,
         lastUpdate: timestamp,
-        metrics: lastMetrics,
+        updated_at: actuatorStatus.updated_at,
         pending: false
     };
+
+    // Log state changes
+    if (actuatorState !== previousState && previousState !== undefined) {
+        addLog('command', `${actuatorId} state changed: ${previousState} → ${actuatorState}`);
+        showToast(`${actuatorId}: now ${actuatorState}`, 'info');
+    }
 
     updateStatsBadges();
     renderActuators();
@@ -389,6 +326,10 @@ function scheduleRender() {
     renderScheduled = true;
     requestAnimationFrame(() => {
         renderDashboard();
+        // Update Network page if it's currently visible
+        if (!document.getElementById('network')?.classList.contains('d-none')) {
+            renderNetworkHealth();
+        }
         renderScheduled = false;
     });
 }
@@ -780,9 +721,8 @@ function renderActuators() {
             rulesHtml = '<div class="mt-2 pt-2" style="border-top:1px solid var(--border);text-align:left;">';
             rulesHtml += '<div style="font-size:.6rem;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;"><i class="bi bi-cpu" style="color:#c084fc;"></i> Automations</div>';
             relatedRules.forEach(r => {
-                const dotColor = r.enabled ? 'var(--success)' : 'var(--text-tertiary)';
                 rulesHtml += `<div style="font-family:'JetBrains Mono',monospace;font-size:.63rem;color:var(--text-secondary);padding:2px 0;">
-                    <span style="color:${dotColor};">●</span> ${r.text}
+                    <span style="color:var(--success);">●</span> ${r.text}
                 </div>`;
             });
             rulesHtml += '</div>';
@@ -835,6 +775,8 @@ function toggleActuator(actuatorId, action) {
 // ==========================================
 // 7. RULE ENGINE
 // ==========================================
+// Rules are stored locally for display purposes.
+// Backend (automation-evaluator) evaluates rules from database and triggers actions.
 const rules = [];
 
 function populateRuleDropdowns() {
@@ -960,6 +902,8 @@ function submitBuilderRule() {
 
     rules.push(rule);
 
+    // Send rule to backend via message broker (newrules.topic)
+    // Received by NewRulesListener in automation-evaluator
     stompClient.publish({
         destination: '/app/rules/add',
         body: JSON.stringify(rule)
@@ -1011,13 +955,11 @@ function renderRules() {
 
     let html = '';
     rules.forEach((rule, idx) => {
-        const enabledColor = rule.enabled ? 'var(--success)' : 'var(--text-tertiary)';
         html += `
         <div class="rule-card">
-            <button class="btn btn-sm p-0" style="color:${enabledColor};font-size:1.15rem;line-height:1;"
-                    onclick="toggleRule(${idx})" title="${rule.enabled ? 'Disable' : 'Enable'}">
-                <i class="bi ${rule.enabled ? 'bi-toggle-on' : 'bi-toggle-off'}"></i>
-            </button>
+            <div style="width:1.5rem;display:flex;align-items:center;justify-content:center;">
+                <span class="status-dot-sm ok" style="margin:0;"></span>
+            </div>
             <div class="rule-text">
                 <span class="rule-keyword if" style="font-size:.62rem;">IF</span>
                 ${rule.sensor.toUpperCase()} ${rule.operator} ${rule.threshold}
@@ -1033,17 +975,10 @@ function renderRules() {
     container.innerHTML = html;
 }
 
-function toggleRule(idx) {
-    if (rules[idx]) {
-        rules[idx].enabled = !rules[idx].enabled;
-        renderRules();
-        addLog('rule', `Rule "${rules[idx].name}" ${rules[idx].enabled ? 'enabled' : 'disabled'}`);
-    }
-}
-
 function deleteRule(idx) {
     if (rules[idx]) {
         const name = rules[idx].name;
+        // Note: Deletes from frontend only. Backend keeps rules in database.
         rules.splice(idx, 1);
         renderRules();
         updateStatsBadges();

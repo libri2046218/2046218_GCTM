@@ -6,6 +6,23 @@ import java.util.Map;
 import java.util.UUID;
 
 public record UnifiedEnvelope(Header header, Payload payload) {
+
+    public void printSummary() {
+        System.out.println("\n--- 🛰️  UNIFIED EVENT REPORT ---");
+        System.out.printf("ID: %s | Origin: %s%n", header.msg_id(), header.origin());
+        System.out.printf("Subject: %s | Status: %s%n", payload.subject_id(), payload.status());
+
+        System.out.println("Metrics:");
+        payload.metrics().forEach(m ->
+                System.out.printf("  >> %-20s : %s %s%n", m.name(), m.value(), m.unit())
+        );
+
+        if (payload.metadata() != null && !payload.metadata().isEmpty()) {
+            System.out.println("Metadata: " + payload.metadata());
+        }
+        System.out.println("--------------------------------\n");
+    }
+
     // Record per l'Header
     public record Header(
             UUID msg_id,
