@@ -126,6 +126,7 @@ The rules are modeled as JSON objects that define the conditions under which cer
     "metricName": {"type": "string"},
     "operator": { "type": "string", "description": "Logical operator, e.g., >, <, ==, >=, <=" },
     "value": { "type": "number", "description": "Threshold value to trigger the rule" },
+    "valueText": {"type": "string", "description": "Field for textual metrics" },
     "actuatorName": { "type": "string" },
     "actuatorState": { "type": "string", "description": "Target state to apply if the condition is met" },
     "manualOverride": { "type": "boolean", "description": "If true, the rule is disabled/bypassed" },
