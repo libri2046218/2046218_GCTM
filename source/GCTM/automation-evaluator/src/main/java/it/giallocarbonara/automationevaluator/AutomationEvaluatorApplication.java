@@ -1,5 +1,6 @@
 package it.giallocarbonara.automationevaluator;
 
+import it.giallocarbonara.SensorData;
 import it.giallocarbonara.UnifiedEnvelope;
 import it.giallocarbonara.automationevaluator.entity.AutomationRule;
 import it.giallocarbonara.automationevaluator.repository.RuleRepository;
