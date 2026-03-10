@@ -36,7 +36,7 @@ public class CommandProducer {
                 action
                 );
 
-        jmsTemplate.convertAndSend("actuators.commands", actuatorCommand);
-        System.out.println("📤 Comando '" + action + "' inviato a actuators.commands");
+        jmsTemplate.convertAndSend("command.actuators.topic", actuatorCommand);
+        System.out.println("📤 Comando '" + action + "' inviato a command.actuators.topic");
     }
 }

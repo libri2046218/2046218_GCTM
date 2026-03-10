@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @SpringBootApplication(scanBasePackages = "it.giallocarbonara")
 @EnableScheduling
@@ -49,6 +50,7 @@ public class SensorsIngestorApplication {
     private final JmsTemplate jmsTemplate;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Map<String, SensorData> lastKnownState = new ConcurrentHashMap<>();
 
     public SensorsIngestorApplication(JmsTemplate jmsTemplate) {
         this.jmsTemplate = jmsTemplate;
@@ -61,9 +63,29 @@ public class SensorsIngestorApplication {
     @JmsListener(destination = "command.sensors.topic", subscription = "sensors-ingestor-sync")
     public void onSensorsSyncRequest(Map<String, Object> command) {
         String action = String.valueOf(command.getOrDefault("action", ""));
+
         if ("STATUS_SYNC".equalsIgnoreCase(action)) {
             System.out.println("[SYNC] Received STATUS_SYNC request. Broadcasting sensor snapshot...");
             broadcastInitialSensorStatus();
+
+        } else if ("FORCE_REFRESH".equalsIgnoreCase(action)) {
+            String sensorId = String.valueOf(command.getOrDefault("sensorId", ""));
+            System.out.println("[REFRESH] Force refresh for: " + sensorId);
+
+            if (STATIC_SENSOR_ENDPOINTS.contains(sensorId)) {
+                // REST sensor: re-fetch fresh data from simulator
+                fetchAndProcessSingleSensor(sensorId);
+            } else {
+                // WS/Telemetry sensor: republish last known state from cache
+                SensorData cached = lastKnownState.get(sensorId);
+                if (cached != null) {
+                    jmsTemplate.setPubSubDomain(true);
+                    jmsTemplate.convertAndSend("sensors.topic", cached);
+                    System.out.println("[REFRESH] Republished cached state for: " + sensorId);
+                } else {
+                    System.err.println("[REFRESH] No cached state found for: " + sensorId);
+                }
+            }
         }
     }
 
@@ -77,7 +99,17 @@ public class SensorsIngestorApplication {
             System.out.println("🔍 [STARTUP] Recupero elenco sensori da " + SENSORS_BASE_URL);
 
             // 1. Chiamata GET generica per ottenere la lista dei sensori
-            JsonNode sensorList = restTemplate.getForObject(SENSORS_BASE_URL, JsonNode.class);
+            String jsonRaw = restTemplate.getForObject(SENSORS_BASE_URL, String.class);
+            if (jsonRaw == null || jsonRaw.isBlank()) {
+                System.err.println("⚠️ [STARTUP] Risposta vuota da " + SENSORS_BASE_URL);
+                return;
+            }
+
+            JsonNode responseNode = mapper.readTree(jsonRaw);
+            JsonNode sensorList = responseNode;
+            if (responseNode != null && responseNode.isObject() && responseNode.has("sensors")) {
+                sensorList = responseNode.get("sensors");
+            }
 
             if (sensorList != null && sensorList.isArray()) {
                 System.out.println("📡 [STARTUP] Trovati " + sensorList.size() + " sensori. Inizio broadcast...");
@@ -88,9 +120,12 @@ public class SensorsIngestorApplication {
                     fetchAndProcessSingleSensor(sensorName);
                 }
                 System.out.println("✅ [STARTUP] Broadcast iniziale completato.");
+            } else {
+                System.err.println("⚠️ [STARTUP] Formato inatteso lista sensori: " + responseNode);
             }
         } catch (Exception e) {
             System.err.println("❌ [STARTUP ERROR] Impossibile recuperare lista sensori: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -198,6 +233,7 @@ public class SensorsIngestorApplication {
                     metrics
             );
 
+            lastKnownState.put(subjectId, sensorData);
             jmsTemplate.setPubSubDomain(true);
             jmsTemplate.convertAndSend("sensors.topic", sensorData);
             System.out.println("🚀 [INGESTOR] Dispatched normalized data for: " + subjectId);

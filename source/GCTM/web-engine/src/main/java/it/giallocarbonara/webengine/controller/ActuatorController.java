@@ -23,18 +23,36 @@ public class ActuatorController {
         this.jmsTemplate = jmsTemplate;
     }
 
-        @MessageMapping("/sensors/sync")
-        public void requestSensorsSync() {
-                Map<String, Object> syncRequest = Map.of(
-                                "action", "STATUS_SYNC",
-                                "origin", "web-engine",
-                                "reason", "page_refresh"
-                );
+    @MessageMapping("/sensors/sync")
+    public void requestSensorsSync() {
+        Map<String, Object> syncRequest = Map.of(
+                "action", "STATUS_SYNC",
+                "origin", "web-engine",
+                "reason", "page_refresh"
+        );
 
-                jmsTemplate.setPubSubDomain(true);
-                jmsTemplate.convertAndSend("command.sensors.topic", syncRequest);
-                logger.info("Sensor status sync request published to command.sensors.topic");
+        jmsTemplate.setPubSubDomain(true);
+        jmsTemplate.convertAndSend("command.sensors.topic", syncRequest);
+        logger.info("Sensor status sync request published to command.sensors.topic");
+    }
+
+    @MessageMapping("/sensors/refresh")
+    public void requestSensorRefresh(Map<String, String> payload) {
+        String sensorId = payload.getOrDefault("sensorId", "");
+        if (sensorId.isBlank()) {
+            logger.warn("Received /sensors/refresh with empty sensorId — ignoring");
+            return;
         }
+
+        Map<String, Object> refreshRequest = new java.util.HashMap<>();
+        refreshRequest.put("action", "FORCE_REFRESH");
+        refreshRequest.put("sensorId", sensorId);
+        refreshRequest.put("origin", "web-engine");
+
+        jmsTemplate.setPubSubDomain(true);
+        jmsTemplate.convertAndSend("command.sensors.topic", refreshRequest);
+        logger.info("Force refresh request published for sensor: {}", sensorId);
+    }
 
     @MessageMapping("/actuators/sync")
     public void requestActuatorsSync() {

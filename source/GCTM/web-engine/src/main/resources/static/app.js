@@ -792,20 +792,39 @@ function toggleActuator(actuatorId, action) {
 // Backend (automation-evaluator) evaluates rules from database and triggers actions.
 const rules = [];
 
+function getPrimaryMetricInfo(sensorId) {
+    const sensor = state.sensorData[sensorId];
+    if (!sensor || !sensor.metrics) return null;
+
+    const entries = Object.entries(sensor.metrics);
+    if (entries.length === 0) return null;
+
+    const [metricName, metric] = entries[0];
+    return {
+        metricName,
+        value: metric?.value,
+        unit: metric?.unit || ''
+    };
+}
+
 function populateRuleDropdowns() {
     const sensorSelect = document.getElementById('rule-sensor');
     const actuatorSelect = document.getElementById('rule-actuator');
     if (!sensorSelect || !actuatorSelect) return;
 
-    // US09: Populate with sensor/metric pairs showing current value
+    // Populate rule sensors with sensor_id only; backend matches by sensor_id.
     const currentSensorVal = sensorSelect.value;
     sensorSelect.innerHTML = '<option value="" disabled>Select sensor…</option>';
-    for (const [key, sensor] of Object.entries(state.sensors).sort(([a], [b]) => a.localeCompare(b))) {
-        const label = key + ` (${sensor.value} ${sensor.unit || ''})`;
+    for (const [sensorId] of Object.entries(state.sensorData).sort(([a], [b]) => a.localeCompare(b))) {
+        const primaryMetric = getPrimaryMetricInfo(sensorId);
+        if (!primaryMetric) continue;
+
+        const valueText = `${primaryMetric.value} ${primaryMetric.unit || ''}`.trim();
+        const label = `${sensorId} [${primaryMetric.metricName}] (${valueText})`;
         const opt = document.createElement('option');
-        opt.value = key;
+        opt.value = sensorId;
         opt.textContent = label;
-        if (key === currentSensorVal) opt.selected = true;
+        if (sensorId === currentSensorVal) opt.selected = true;
         sensorSelect.appendChild(opt);
     }
 
@@ -836,14 +855,14 @@ function populateRuleDropdowns() {
 }
 
 function onRuleSensorChange() {
-    const sensorKey = document.getElementById('rule-sensor').value;
-    const sensor = state.sensors[sensorKey];
+    const sensorId = document.getElementById('rule-sensor').value;
+    const primaryMetric = getPrimaryMetricInfo(sensorId);
     const unitBadge = document.getElementById('rule-unit-badge');
     const liveVal = document.getElementById('rule-sensor-live');
 
-    if (sensor) {
-        unitBadge.textContent = sensor.unit || '—';
-        liveVal.textContent = sensor.value + ' ' + (sensor.unit || '');
+    if (primaryMetric) {
+        unitBadge.textContent = primaryMetric.unit || '—';
+        liveVal.textContent = `${primaryMetric.value} ${primaryMetric.unit || ''}`.trim();
     } else {
         unitBadge.textContent = '—';
         liveVal.textContent = '—';
@@ -852,12 +871,12 @@ function onRuleSensorChange() {
 }
 
 function refreshBuilderLiveValue() {
-    const sensorKey = document.getElementById('rule-sensor')?.value;
-    if (!sensorKey) return;
-    const sensor = state.sensors[sensorKey];
-    if (sensor) {
+    const sensorId = document.getElementById('rule-sensor')?.value;
+    if (!sensorId) return;
+    const primaryMetric = getPrimaryMetricInfo(sensorId);
+    if (primaryMetric) {
         const liveVal = document.getElementById('rule-sensor-live');
-        if (liveVal) liveVal.textContent = sensor.value + ' ' + (sensor.unit || '');
+        if (liveVal) liveVal.textContent = `${primaryMetric.value} ${primaryMetric.unit || ''}`.trim();
     }
 }
 
@@ -890,16 +909,23 @@ function submitBuilderRule() {
 
     // US09: Enhanced validation
     if (!sensor) { showRuleFeedback(feedback, 'warning', 'Select a sensor.'); return; }
-    if (!state.sensors[sensor]) { showRuleFeedback(feedback, 'warning', 'Selected sensor not found in active sensors.'); return; }
+    if (!state.sensorData[sensor]) { showRuleFeedback(feedback, 'warning', 'Selected sensor not found in active sensors.'); return; }
     if (threshold === '' || isNaN(Number(threshold))) { showRuleFeedback(feedback, 'warning', 'Enter a valid numeric threshold.'); return; }
     if (!actuator) { showRuleFeedback(feedback, 'warning', 'Select an actuator.'); return; }
     if (!state.actuators[actuator]) { showRuleFeedback(feedback, 'warning', 'Selected actuator not found in active actuators.'); return; }
+
+    const primaryMetric = getPrimaryMetricInfo(sensor);
+    if (!primaryMetric) { showRuleFeedback(feedback, 'warning', 'Selected sensor has no metrics yet.'); return; }
+    if (typeof primaryMetric.value !== 'number') {
+        showRuleFeedback(feedback, 'warning', `First metric for ${sensor} is not numeric.`);
+        return;
+    }
 
     // Check for duplicate rules
     const isDuplicate = rules.some(r => r.sensor === sensor && r.operator === operator && r.threshold === Number(threshold) && r.actuator === actuator && r.action === action);
     if (isDuplicate) { showRuleFeedback(feedback, 'warning', 'An identical rule already exists.'); return; }
 
-    const ruleText = `IF ${sensor.toUpperCase()} ${operator} ${threshold} THEN ${actuator} ${action}`;
+    const ruleText = `IF ${sensor.toUpperCase()}[${primaryMetric.metricName}] ${operator} ${threshold} THEN ${actuator} ${action}`;
     const rule = {
         id: Date.now(),
         name: name || ruleText,
