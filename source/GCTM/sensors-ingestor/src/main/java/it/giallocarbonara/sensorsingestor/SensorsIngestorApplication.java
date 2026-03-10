@@ -2,6 +2,9 @@ package it.giallocarbonara.sensorsingestor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import it.giallocarbonara.Header;
+import it.giallocarbonara.Metric;
+import it.giallocarbonara.SensorData;
 import it.giallocarbonara.UnifiedEnvelope;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -91,57 +94,64 @@ public class SensorsIngestorApplication {
         else if (node.has("topic")) subjectId = node.get("topic").asText();
         else if (node.has("airlock_id")) subjectId = node.get("airlock_id").asText();
 
-        List<UnifiedEnvelope.Metric> metrics = new ArrayList<>();
+        List<Metric> metrics = new ArrayList<>();
 
         // 1. SCHEMI SCALARI / AMBIENTALI (rest.scalar.v1 & topic.environment.v1)
         if (node.has("value") && node.has("metric")) {
-            metrics.add(new UnifiedEnvelope.Metric(node.get("metric").asText(), node.get("value").asDouble(), node.get("unit").asText("")));
+            metrics.add(new Metric(node.get("metric").asText(), node.get("value").asDouble(), node.get("unit").asText("")));
         }
         // 2. SCHEMI CHIMICI / LISTE (rest.chemistry.v1 & topic.environment.v1)
         else if (node.has("measurements")) {
-            node.get("measurements").forEach(m -> metrics.add(new UnifiedEnvelope.Metric(
+            node.get("measurements").forEach(m -> metrics.add(new Metric(
                     m.get("metric").asText(), m.get("value").asDouble(), m.get("unit").asText(""))));
         }
         // 3. SCHEMA POWER (topic.power.v1)
         else if (node.has("power_kw")) {
-            metrics.add(new UnifiedEnvelope.Metric("power", node.get("power_kw").asDouble(), "kW"));
-            metrics.add(new UnifiedEnvelope.Metric("voltage", node.get("voltage_v").asDouble(), "V"));
-            metrics.add(new UnifiedEnvelope.Metric("current", node.get("current_a").asDouble(), "A"));
-            metrics.add(new UnifiedEnvelope.Metric("cumulative", node.get("cumulative_kwh").asDouble(), "kWh"));
+            metrics.add(new Metric("power", node.get("power_kw").asDouble(), "kW"));
+            metrics.add(new Metric("voltage", node.get("voltage_v").asDouble(), "V"));
+            metrics.add(new Metric("current", node.get("current_a").asDouble(), "A"));
+            metrics.add(new Metric("cumulative", node.get("cumulative_kwh").asDouble(), "kWh"));
         }
         // 4. SCHEMA PARTICOLATO (rest.particulate.v1)
         else if (node.has("pm25_ug_m3")) {
-            metrics.add(new UnifiedEnvelope.Metric("pm1", node.get("pm1_ug_m3").asDouble(), "ug/m3"));
-            metrics.add(new UnifiedEnvelope.Metric("pm25", node.get("pm25_ug_m3").asDouble(), "ug/m3"));
-            metrics.add(new UnifiedEnvelope.Metric("pm10", node.get("pm10_ug_m3").asDouble(), "ug/m3"));
+            metrics.add(new Metric("pm1", node.get("pm1_ug_m3").asDouble(), "ug/m3"));
+            metrics.add(new Metric("pm25", node.get("pm25_ug_m3").asDouble(), "ug/m3"));
+            metrics.add(new Metric("pm10", node.get("pm10_ug_m3").asDouble(), "ug/m3"));
         }
         // 5. SCHEMA LIVELLO (rest.level.v1)
         else if (node.has("level_pct")) {
-            metrics.add(new UnifiedEnvelope.Metric("level_pct", node.get("level_pct").asDouble(), "%"));
-            metrics.add(new UnifiedEnvelope.Metric("level_liters", node.get("level_liters").asDouble(), "L"));
+            metrics.add(new Metric("level_pct", node.get("level_pct").asDouble(), "%"));
+            metrics.add(new Metric("level_liters", node.get("level_liters").asDouble(), "L"));
         }
         // 6. SCHEMA THERMAL (topic.thermal_loop.v1)
         else if (node.has("temperature_c") && node.has("loop")) {
-            metrics.add(new UnifiedEnvelope.Metric("temperature", node.get("temperature_c").asDouble(), "°C"));
-            metrics.add(new UnifiedEnvelope.Metric("flow", node.get("flow_l_min").asDouble(), "L/min"));
+            metrics.add(new Metric("temperature", node.get("temperature_c").asDouble(), "°C"));
+            metrics.add(new Metric("flow", node.get("flow_l_min").asDouble(), "L/min"));
         }
         // 7. SCHEMA AIRLOCK (topic.airlock.v1)
         else if (node.has("cycles_per_hour")) {
-            metrics.add(new UnifiedEnvelope.Metric("cycles", node.get("cycles_per_hour").asDouble(), "c/h"));
-            metrics.add(new UnifiedEnvelope.Metric("state", node.get("last_state").asText(), "status"));
+            metrics.add(new Metric("cycles", node.get("cycles_per_hour").asDouble(), "c/h"));
+            metrics.add(new Metric("state", node.get("last_state").asText(), "status"));
         }
 
         if (!metrics.isEmpty()) {
-            UnifiedEnvelope.Status envStatus = (node.path("status").asText("ok").equals("warning")) ?
-                    UnifiedEnvelope.Status.warning : UnifiedEnvelope.Status.ok;
+            String envStatus = node.path("status").asText("ok");
 
-            UnifiedEnvelope envelope = new UnifiedEnvelope(
-                    new UnifiedEnvelope.Header(UUID.randomUUID(), Instant.now(), UnifiedEnvelope.MsgType.TELEMETRY, "sensors-ingestor", null, null),
-                    new UnifiedEnvelope.Payload(subjectId, envStatus, metrics, null)
+            SensorData sensorData = new SensorData(
+                    new Header(
+                            UUID.randomUUID(),
+                            Instant.now(),
+                            "sensors-ingestor",
+                            null,
+                            null
+                    ),
+                    subjectId,
+                    envStatus,
+                    metrics
             );
 
             jmsTemplate.setPubSubDomain(true);
-            jmsTemplate.convertAndSend("sensors.topic", envelope);
+            jmsTemplate.convertAndSend("sensors.topic", sensorData);
             System.out.println("🚀 [INGESTOR] Dispatched normalized data for: " + subjectId);
         }
     }
