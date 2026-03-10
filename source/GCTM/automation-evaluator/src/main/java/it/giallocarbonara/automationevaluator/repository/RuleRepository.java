@@ -7,10 +7,9 @@ import java.util.List;
 public interface RuleRepository extends JpaRepository<AutomationRule, Long> {
     List<AutomationRule> findBySensorNameIgnoreCase(String metricName);
 
-    List<AutomationRule> findBySensorNameAndOperatorAndValueAndActuatorNameAndActuatorStateAndManualOverride(
+    List<AutomationRule> findBySensorNameAndOperatorAndActuatorNameAndActuatorStateAndManualOverride(
             String sensorName,
             String operator,
-            Double value,
             String actuatorName,
             String actuatorState,
             Boolean manualOverride

@@ -123,21 +123,29 @@ public class ActuatorController {
 
     /**
      * Handles automation rule creation from the frontend and publishes to automation-evaluator.
-     * Frontend sends: {sensor, operator, threshold, actuator, action}
+     * Frontend sends: {sensor, metric, operator, threshold, actuator, action}
      */
     @MessageMapping("/rules/add")
     public void handleRuleCreation(Map<String, Object> ruleData) {
         String sensor = (String) ruleData.get("sensor");
+        String metric = (String) ruleData.get("metric");
         String operator = (String) ruleData.get("operator");
+        String thresholdText = ruleData.get("threshold") != null ? String.valueOf(ruleData.get("threshold")).trim() : null;
         Double threshold = null;
         if (ruleData.get("threshold") instanceof Number) {
             threshold = ((Number) ruleData.get("threshold")).doubleValue();
+        } else if (thresholdText != null && !thresholdText.isBlank()) {
+            try {
+                threshold = Double.parseDouble(thresholdText);
+            } catch (NumberFormatException ignored) {
+                threshold = null;
+            }
         }
         String actuator = (String) ruleData.get("actuator");
         String action = (String) ruleData.get("action");
 
-        logger.info("WebSocket rule creation received: sensor={}, operator={}, threshold={}, actuator={}, action={}",
-                sensor, operator, threshold, actuator, action);
+        logger.info("WebSocket rule creation received: sensor={}, metric={}, operator={}, threshold={}, actuator={}, action={}",
+                sensor, metric, operator, thresholdText, actuator, action);
 
         // Create AutomRule message
         AutomRule automRule = new AutomRule(
@@ -150,8 +158,10 @@ public class ActuatorController {
                 ),
             null,
                 sensor,
+                metric,
                 operator,
                 threshold,
+                thresholdText,
                 actuator,
                 action,
                 false,  // manualOverride = false (rule is enabled by default)
@@ -161,16 +171,24 @@ public class ActuatorController {
         // Send to automation-evaluator via broker topic
         jmsTemplate.setPubSubDomain(true);
         jmsTemplate.convertAndSend("newrules.topic", automRule);
-        logger.info("AutomRule published to newrules.topic: sensor={}, actuator={}", sensor, actuator);
+        logger.info("AutomRule published to newrules.topic: sensor={}, metric={}, actuator={}", sensor, metric, actuator);
     }
 
     @MessageMapping("/rules/delete")
     public void handleRuleDeletion(Map<String, Object> ruleData) {
         String sensor = (String) ruleData.get("sensor");
+        String metric = (String) ruleData.get("metric");
         String operator = (String) ruleData.get("operator");
+        String thresholdText = ruleData.get("threshold") != null ? String.valueOf(ruleData.get("threshold")).trim() : null;
         Double threshold = null;
         if (ruleData.get("threshold") instanceof Number) {
             threshold = ((Number) ruleData.get("threshold")).doubleValue();
+        } else if (thresholdText != null && !thresholdText.isBlank()) {
+            try {
+                threshold = Double.parseDouble(thresholdText);
+            } catch (NumberFormatException ignored) {
+                threshold = null;
+            }
         }
         String actuator = (String) ruleData.get("actuator");
         String action = (String) ruleData.get("action");
@@ -185,8 +203,10 @@ public class ActuatorController {
                 ),
             null,
                 sensor,
+                metric,
                 operator,
                 threshold,
+                thresholdText,
                 actuator,
                 action,
                 false,
@@ -195,6 +215,6 @@ public class ActuatorController {
 
         jmsTemplate.setPubSubDomain(true);
         jmsTemplate.convertAndSend("newrules.topic", deleteRequest);
-        logger.info("Automation delete request published to newrules.topic: sensor={}, actuator={}", sensor, actuator);
+        logger.info("Automation delete request published to newrules.topic: sensor={}, metric={}, actuator={}", sensor, metric, actuator);
     }
 }

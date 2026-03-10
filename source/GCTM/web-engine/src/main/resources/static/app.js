@@ -444,11 +444,12 @@ function renderDashboard() {
 
             // US14: check if value is outside safe range
             const rangeKey = (sensor.origin || groupName) + '/' + sensor.name;
-            const range = state.safeRanges[rangeKey];
+            const range = getSafeRangeConfig(rangeKey);
             let alarmHtml = '';
-            if (range && typeof sensor.value === 'number' && (sensor.value < range.min || sensor.value > range.max)) {
+            const isOutOfRange = isSafeRangeBreached(range, sensor.value);
+            if (range && isOutOfRange) {
                 cls += ' alarm';
-                alarmHtml = `<div class="alarm-badge"><i class="bi bi-exclamation-triangle-fill"></i> OUT OF RANGE</div>`;
+                alarmHtml = `<div class="alarm-badge"><i class="bi bi-exclamation-triangle-fill"></i> UNSAFE</div>`;
             }
 
             const originLabel = (state.groupBy === 'type' && sensor.origin)
@@ -479,15 +480,8 @@ function renderDashboard() {
             // Build range label if a safe range is defined
             let rangeHtml = '';
             if (range) {
-                let dispMin = range.min;
-                let dispMax = range.max;
-                let rangeUnit = originalUnit;
-                if (hasConversion && preferredUnit !== originalUnit) {
-                    dispMin = formatConverted(convertUnit(range.min, originalUnit, preferredUnit));
-                    dispMax = formatConverted(convertUnit(range.max, originalUnit, preferredUnit));
-                    rangeUnit = preferredUnit;
-                }
-                rangeHtml = `<div style="font-size:.63rem;color:var(--text-tertiary);font-family:'JetBrains Mono',monospace;margin-top:2px;"><i class="bi bi-arrow-left-right" style="font-size:.55rem;"></i> ${dispMin} – ${dispMax} ${rangeUnit}</div>`;
+                const summary = formatSafeRangeSummary(range, originalUnit, preferredUnit, originalUnit, hasConversion);
+                rangeHtml = `<div style="font-size:.63rem;color:var(--text-tertiary);font-family:'JetBrains Mono',monospace;margin-top:2px;"><i class="bi bi-shield-check" style="font-size:.55rem;"></i> ${summary}</div>`;
             }
 
             html += `
@@ -559,11 +553,26 @@ function renderChartsView(container, groups, groupEntries) {
                         el.textContent = history[history.length - 1].value;
                     }
                 }
+
+                const chartDomId = chartKey.replace(/[^a-zA-Z0-9]/g, '-');
+                const cardEl = document.getElementById('nn-card-' + chartDomId);
+                const safeRangeEl = document.getElementById('nn-safe-' + chartDomId);
+                const range = getSafeRangeConfig(chartKey.replace('::', '/'));
+                const history = state.sensorHistory[chartKey];
+                const latestValue = history && history.length > 0 ? history[history.length - 1].value : undefined;
+                const isUnsafe = isSafeRangeBreached(range, latestValue);
+                if (cardEl) {
+                    cardEl.classList.toggle('alarm-card', isUnsafe);
+                }
+                if (safeRangeEl) {
+                    safeRangeEl.textContent = range ? formatSafeRangeSummary(range) : 'No safe threshold configured';
+                    safeRangeEl.style.color = isUnsafe ? 'var(--danger)' : 'var(--text-tertiary)';
+                }
+
                 // Update non-numeric history list
                 const histId = 'nn-hist-' + chartKey.replace(/[^a-zA-Z0-9]/g, '-');
                 const histEl = document.getElementById(histId);
                 if (histEl) {
-                    const history = state.sensorHistory[chartKey];
                     if (history) {
                         histEl.innerHTML = history.slice(-8).reverse().map(p =>
                             `<div class="nn-history-item"><span class="nn-hist-val">${p.value}</span><span class="nn-hist-time">${new Date(p.time).toLocaleTimeString()}</span></div>`
@@ -596,6 +605,9 @@ function renderChartsView(container, groups, groupEntries) {
             const safeId = chartKey.replace(/[^a-zA-Z0-9]/g, '-');
             const isNumeric = typeof sensor.value === 'number';
             const history = state.sensorHistory[chartKey] || [];
+            const safeRange = getSafeRangeConfig((sensor.origin || groupName) + '/' + sensor.name);
+            const safeSummary = safeRange ? formatSafeRangeSummary(safeRange) : 'No safe threshold configured';
+            const isUnsafe = isSafeRangeBreached(safeRange, sensor.value);
 
             const chartOriginLabel = sensor.origin
                 ? `<div class="sensor-origin" style="font-size:.6rem;color:var(--text-tertiary);font-family:'JetBrains Mono',monospace;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${sensor.origin}">${sensor.origin}</div>`
@@ -628,13 +640,14 @@ function renderChartsView(container, groups, groupEntries) {
                 }
                 html += `
                 <div class="${colClass}">
-                    <div class="glass-inner p-3 chart-in-group non-numeric-display">
+                    <div id="nn-card-${safeId}" class="glass-inner p-3 chart-in-group non-numeric-display ${isUnsafe ? 'alarm-card' : ''}">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="sensor-name">${sensor.name.toUpperCase()}</span>
                             <span class="status-dot-sm ${sensor.status || 'ok'}" title="${sensor.status || 'ok'}"></span>
                         </div>
                         ${chartOriginLabel}
                         <div class="nn-current-value" id="nn-val-${safeId}">${sensor.value}</div>
+                        <div id="nn-safe-${safeId}" style="font-size:.68rem;color:${isUnsafe ? 'var(--danger)' : 'var(--text-tertiary)'};margin-bottom:.5rem;">${safeSummary}</div>
                         <div class="nn-label">State History</div>
                         <div class="nn-history-list" id="nn-hist-${safeId}">${historyHtml}</div>
                         <div class="sensor-time mt-2"><i class="bi bi-clock" style="font-size:.55rem;"></i> ${relativeTime(sensor.lastUpdate)}</div>
@@ -803,12 +816,89 @@ function toggleActuator(actuatorId, action) {
 // Rules are stored locally for display purposes.
 // Backend (automation-evaluator) evaluates rules from database and triggers actions.
 const rules = [];
+const NUMERIC_RULE_OPERATORS = [
+    { value: '>', label: '> greater than' },
+    { value: '<', label: '< less than' },
+    { value: '>=', label: '>= greater or equal' },
+    { value: '<=', label: '<= less or equal' },
+    { value: '==', label: '= equal to' },
+    { value: '!=', label: '!= not equal' }
+];
+const TEXT_RULE_OPERATORS = [
+    { value: '==', label: '= equal to' }
+];
+
+function normalizeSafeStateValue(value) {
+    if (value === undefined || value === null) return null;
+    const normalized = String(value).trim().toLowerCase();
+    return normalized || null;
+}
+
+function normalizeSafeRange(range) {
+    if (!range || typeof range !== 'object') return null;
+
+    if (Array.isArray(range.allowedValues)) {
+        const allowedValues = range.allowedValues
+            .map(normalizeSafeStateValue)
+            .filter(Boolean);
+        return allowedValues.length > 0 ? { kind: 'enum', allowedValues } : null;
+    }
+
+    if (Number.isFinite(Number(range.min)) && Number.isFinite(Number(range.max))) {
+        return {
+            kind: 'numeric',
+            min: Number(range.min),
+            max: Number(range.max)
+        };
+    }
+
+    return null;
+}
+
+function getSafeRangeConfig(sensorKey) {
+    return normalizeSafeRange(state.safeRanges[sensorKey]);
+}
+
+function isSafeRangeNumericMetric(sensorKey) {
+    const sensor = state.sensors[sensorKey];
+    return typeof sensor?.value === 'number' && Number.isFinite(sensor.value);
+}
+
+function isSafeRangeBreached(range, value) {
+    if (!range) return false;
+
+    if (range.kind === 'numeric') {
+        return typeof value === 'number' && (value < range.min || value > range.max);
+    }
+
+    const normalizedValue = normalizeSafeStateValue(value);
+    return normalizedValue !== null && !range.allowedValues.includes(normalizedValue);
+}
+
+function formatSafeRangeSummary(range, unit = '', preferredUnit = unit, originalUnit = unit, hasConversion = false) {
+    if (!range) return '';
+
+    if (range.kind === 'enum') {
+        return `Safe states: ${range.allowedValues.join(', ')}`;
+    }
+
+    let min = range.min;
+    let max = range.max;
+    let displayUnit = unit || '';
+    if (hasConversion && preferredUnit !== originalUnit) {
+        min = formatConverted(convertUnit(range.min, originalUnit, preferredUnit));
+        max = formatConverted(convertUnit(range.max, originalUnit, preferredUnit));
+        displayUnit = preferredUnit;
+    }
+
+    return `Range: ${min} - ${max} ${displayUnit}`.trim();
+}
 
 function ruleKey(rule) {
     if (rule.id !== undefined && rule.id !== null) {
         return `id:${rule.id}`;
     }
-    return [rule.sensor, rule.operator, rule.threshold, rule.actuator, rule.action].join('|');
+    return [rule.sensor, rule.metric, rule.operator, rule.threshold, rule.actuator, rule.action].join('|');
 }
 
 function upsertRule(localRule) {
@@ -823,22 +913,27 @@ function upsertRule(localRule) {
 
 function handleRuleSnapshot(ruleData) {
     const sensor = ruleData?.sensorName || ruleData?.sensor;
+    const metric = ruleData?.metricName || ruleData?.metric;
     const operator = ruleData?.operator;
-    const threshold = Number(ruleData?.value ?? ruleData?.threshold);
+    const thresholdRaw = ruleData?.valueText ?? ruleData?.value ?? ruleData?.threshold;
     const actuator = ruleData?.actuatorName || ruleData?.actuator;
     const action = ruleData?.actuatorState || ruleData?.action;
 
-    if (!sensor || !operator || Number.isNaN(threshold) || !actuator || !action) return;
+    if (!sensor || !operator || thresholdRaw === undefined || thresholdRaw === null || !actuator || !action) return;
+
+    const threshold = String(thresholdRaw).trim();
+    if (!threshold) return;
 
     const mappedRule = {
         id: ruleData?.id ?? null,
-        name: `IF ${sensor.toUpperCase()} ${operator} ${threshold} THEN ${actuator} ${action}`,
+        name: `IF ${sensor.toUpperCase()}[${metric || '?'}] ${operator} ${threshold} THEN ${actuator} ${action}`,
         sensor,
+        metric,
         operator,
         threshold,
         actuator,
         action,
-        text: `IF ${sensor.toUpperCase()} ${operator} ${threshold} THEN ${actuator} ${action}`,
+        text: `IF ${sensor.toUpperCase()}[${metric || '?'}] ${operator} ${threshold} THEN ${actuator} ${action}`,
         enabled: true,
         createdAt: new Date().toISOString()
     };
@@ -863,20 +958,82 @@ function getPrimaryMetricInfo(sensorId) {
     };
 }
 
+function getMetricInfo(sensorId, metricName) {
+    const sensor = state.sensorData[sensorId];
+    if (!sensor || !sensor.metrics) return null;
+    
+    const metric = sensor.metrics[metricName];
+    if (!metric) return null;
+    
+    return {
+        metricName,
+        value: metric?.value,
+        unit: metric?.unit || ''
+    };
+}
+
+function getAllMetricsForSensor(sensorId) {
+    const sensor = state.sensorData[sensorId];
+    if (!sensor || !sensor.metrics) return [];
+    
+    return Object.keys(sensor.metrics);
+}
+
+function isRuleMetricNumeric(primaryMetric) {
+    return typeof primaryMetric?.value === 'number' && Number.isFinite(primaryMetric.value);
+}
+
+function renderRuleOperatorOptions(options, preferredValue) {
+    const operatorSelect = document.getElementById('rule-operator');
+    if (!operatorSelect) return;
+
+    operatorSelect.innerHTML = options.map(option =>
+        `<option value="${option.value}">${option.label}</option>`
+    ).join('');
+
+    const hasPreferredValue = options.some(option => option.value === preferredValue);
+    operatorSelect.value = hasPreferredValue ? preferredValue : options[0].value;
+}
+
+function configureRuleBuilderForMetric(primaryMetric) {
+    const thresholdInput = document.getElementById('rule-threshold');
+    const unitBadge = document.getElementById('rule-unit-badge');
+    const operatorSelect = document.getElementById('rule-operator');
+    if (!thresholdInput || !unitBadge || !operatorSelect) return;
+
+    const previousOperator = operatorSelect.value;
+    const numericMetric = isRuleMetricNumeric(primaryMetric);
+    renderRuleOperatorOptions(numericMetric ? NUMERIC_RULE_OPERATORS : TEXT_RULE_OPERATORS, previousOperator);
+
+    thresholdInput.value = '';
+    if (numericMetric) {
+        thresholdInput.inputMode = 'decimal';
+        thresholdInput.placeholder = '0';
+        thresholdInput.setAttribute('spellcheck', 'false');
+        unitBadge.textContent = primaryMetric?.unit || '—';
+        return;
+    }
+
+    thresholdInput.inputMode = 'text';
+    thresholdInput.placeholder = 'Enter enum value';
+    thresholdInput.setAttribute('spellcheck', 'false');
+    unitBadge.textContent = 'ENUM';
+}
+
 function populateRuleDropdowns() {
     const sensorSelect = document.getElementById('rule-sensor');
+    const metricSelect = document.getElementById('rule-metric');
     const actuatorSelect = document.getElementById('rule-actuator');
-    if (!sensorSelect || !actuatorSelect) return;
+    if (!sensorSelect || !metricSelect || !actuatorSelect) return;
 
-    // Populate rule sensors with sensor_id only; backend matches by sensor_id.
+    // Populate rule sensors
     const currentSensorVal = sensorSelect.value;
     sensorSelect.innerHTML = '<option value="" disabled>Select sensor…</option>';
     for (const [sensorId] of Object.entries(state.sensorData).sort(([a], [b]) => a.localeCompare(b))) {
-        const primaryMetric = getPrimaryMetricInfo(sensorId);
-        if (!primaryMetric) continue;
+        const metrics = getAllMetricsForSensor(sensorId);
+        if (metrics.length === 0) continue;
 
-        const valueText = `${primaryMetric.value} ${primaryMetric.unit || ''}`.trim();
-        const label = `${sensorId} [${primaryMetric.metricName}] (${valueText})`;
+        const label = `${sensorId} (${metrics.length} metric${metrics.length > 1 ? 's' : ''})`;
         const opt = document.createElement('option');
         opt.value = sensorId;
         opt.textContent = label;
@@ -896,6 +1053,8 @@ function populateRuleDropdowns() {
             if (key === currentThreshVal) opt.selected = true;
             thresholdSelect.appendChild(opt);
         }
+
+        configureSafeRangeForm();
     }
 
     const currentActVal = actuatorSelect.value;
@@ -908,36 +1067,84 @@ function populateRuleDropdowns() {
         if (key === currentActVal) opt.selected = true;
         actuatorSelect.appendChild(opt);
     }
+
+    // Populate metrics for selected sensor
+    const selectedSensorId = sensorSelect.value;
+    populateRuleMetrics(selectedSensorId);
 }
 
 function onRuleSensorChange() {
     const sensorId = document.getElementById('rule-sensor').value;
-    const primaryMetric = getPrimaryMetricInfo(sensorId);
-    const unitBadge = document.getElementById('rule-unit-badge');
-    const liveVal = document.getElementById('rule-sensor-live');
+    populateRuleMetrics(sensorId);
+}
 
-    if (primaryMetric) {
-        unitBadge.textContent = primaryMetric.unit || '—';
-        liveVal.textContent = `${primaryMetric.value} ${primaryMetric.unit || ''}`.trim();
-    } else {
-        unitBadge.textContent = '—';
-        liveVal.textContent = '—';
+function populateRuleMetrics(sensorId) {
+    const metricSelect = document.getElementById('rule-metric');
+    if (!metricSelect || !sensorId) {
+        metricSelect.innerHTML = '<option value="" disabled>Select metric…</option>';
+        configureRuleBuilderForMetric(null);
+        return;
     }
+
+    const metrics = getAllMetricsForSensor(sensorId);
+    const currentMetricVal = metricSelect.value;
+    
+    metricSelect.innerHTML = '<option value="" disabled>Select metric…</option>';
+    metrics.forEach(metricName => {
+        const metric = state.sensorData[sensorId].metrics[metricName];
+        const label = `${metricName} (${metric.value} ${metric.unit || ''})`;
+        const opt = document.createElement('option');
+        opt.value = metricName;
+        opt.textContent = label;
+        if (metricName === currentMetricVal) opt.selected = true;
+        metricSelect.appendChild(opt);
+    });
+    
+    // Auto-select first metric if none was selected
+    if (!currentMetricVal && metrics.length > 0) {
+        metricSelect.value = metrics[0];
+    }
+    
+    onRuleMetricChange();
+}
+
+function onRuleMetricChange() {
+    const sensorId = document.getElementById('rule-sensor').value;
+    const metricName = document.getElementById('rule-metric').value;
+    
+    if (!sensorId || !metricName) {
+        configureRuleBuilderForMetric(null);
+        document.getElementById('rule-sensor-live').textContent = '—';
+        return;
+    }
+    
+    const metricInfo = getMetricInfo(sensorId, metricName);
+    configureRuleBuilderForMetric(metricInfo);
+    
+    if (metricInfo) {
+        document.getElementById('rule-sensor-live').textContent = `${metricInfo.value} ${metricInfo.unit || ''}`.trim();
+    } else {
+        document.getElementById('rule-sensor-live').textContent = '—';
+    }
+    
     updateRulePreview();
 }
 
 function refreshBuilderLiveValue() {
     const sensorId = document.getElementById('rule-sensor')?.value;
-    if (!sensorId) return;
-    const primaryMetric = getPrimaryMetricInfo(sensorId);
-    if (primaryMetric) {
+    const metricName = document.getElementById('rule-metric')?.value;
+    if (!sensorId || !metricName) return;
+    
+    const metricInfo = getMetricInfo(sensorId, metricName);
+    if (metricInfo) {
         const liveVal = document.getElementById('rule-sensor-live');
-        if (liveVal) liveVal.textContent = `${primaryMetric.value} ${primaryMetric.unit || ''}`.trim();
+        if (liveVal) liveVal.textContent = `${metricInfo.value} ${metricInfo.unit || ''}`.trim();
     }
 }
 
 function updateRulePreview() {
     const sensor = document.getElementById('rule-sensor')?.value;
+    const metric = document.getElementById('rule-metric')?.value;
     const op = document.getElementById('rule-operator')?.value;
     const threshold = document.getElementById('rule-threshold')?.value;
     const actuator = document.getElementById('rule-actuator')?.value;
@@ -945,11 +1152,11 @@ function updateRulePreview() {
     const preview = document.getElementById('rule-preview');
     if (!preview) return;
 
-    if (sensor && actuator && threshold !== '') {
-        preview.textContent = `IF ${sensor.toUpperCase()} ${op} ${threshold} THEN ${actuator} ${action}`;
+    if (sensor && metric && actuator && threshold !== '') {
+        preview.textContent = `IF ${sensor.toUpperCase()}[${metric}] ${op} ${threshold} THEN ${actuator} ${action}`;
         preview.style.color = 'var(--text-primary)';
     } else {
-        preview.textContent = 'Select sensor and actuator to preview rule…';
+        preview.textContent = 'Select sensor, metric and actuator to preview rule…';
         preview.style.color = 'var(--text-tertiary)';
     }
 }
@@ -957,8 +1164,9 @@ function updateRulePreview() {
 function submitBuilderRule() {
     const name = document.getElementById('rule-name')?.value.trim();
     const sensor = document.getElementById('rule-sensor')?.value;
+    const metric = document.getElementById('rule-metric')?.value;
     const operator = document.getElementById('rule-operator')?.value;
-    const threshold = document.getElementById('rule-threshold')?.value;
+    const threshold = document.getElementById('rule-threshold')?.value.trim();
     const actuator = document.getElementById('rule-actuator')?.value;
     const action = document.getElementById('rule-action')?.value;
     const feedback = document.getElementById('rule-feedback');
@@ -966,28 +1174,49 @@ function submitBuilderRule() {
     // US09: Enhanced validation
     if (!sensor) { showRuleFeedback(feedback, 'warning', 'Select a sensor.'); return; }
     if (!state.sensorData[sensor]) { showRuleFeedback(feedback, 'warning', 'Selected sensor not found in active sensors.'); return; }
-    if (threshold === '' || isNaN(Number(threshold))) { showRuleFeedback(feedback, 'warning', 'Enter a valid numeric threshold.'); return; }
+    if (!metric) { showRuleFeedback(feedback, 'warning', 'Select a metric.'); return; }
     if (!actuator) { showRuleFeedback(feedback, 'warning', 'Select an actuator.'); return; }
     if (!state.actuators[actuator]) { showRuleFeedback(feedback, 'warning', 'Selected actuator not found in active actuators.'); return; }
 
-    const primaryMetric = getPrimaryMetricInfo(sensor);
-    if (!primaryMetric) { showRuleFeedback(feedback, 'warning', 'Selected sensor has no metrics yet.'); return; }
-    if (typeof primaryMetric.value !== 'number') {
-        showRuleFeedback(feedback, 'warning', `First metric for ${sensor} is not numeric.`);
+    const selectedMetric = getMetricInfo(sensor, metric);
+    if (!selectedMetric) { showRuleFeedback(feedback, 'warning', 'Selected metric not found.'); return; }
+
+    const numericMetric = isRuleMetricNumeric(selectedMetric);
+    if (threshold === '') {
+        showRuleFeedback(feedback, 'warning', numericMetric ? 'Enter a valid numeric threshold.' : 'Enter the text value to match.');
+        return;
+    }
+
+    if (numericMetric) {
+        if (isNaN(Number(threshold))) {
+            showRuleFeedback(feedback, 'warning', 'Enter a valid numeric threshold.');
+            return;
+        }
+    } else if (operator !== '==') {
+        showRuleFeedback(feedback, 'warning', 'Text-based sensors support only the EQUAL TO operator.');
         return;
     }
 
     // Check for duplicate rules
-    const isDuplicate = rules.some(r => r.sensor === sensor && r.operator === operator && r.threshold === Number(threshold) && r.actuator === actuator && r.action === action);
+    const normalizedThreshold = threshold.trim().toLowerCase();
+    const isDuplicate = rules.some(r =>
+        r.sensor === sensor
+        && r.metric === metric
+        && r.operator === operator
+        && String(r.threshold).trim().toLowerCase() === normalizedThreshold
+        && r.actuator === actuator
+        && r.action === action
+    );
     if (isDuplicate) { showRuleFeedback(feedback, 'warning', 'An identical rule already exists.'); return; }
 
-    const ruleText = `IF ${sensor.toUpperCase()}[${primaryMetric.metricName}] ${operator} ${threshold} THEN ${actuator} ${action}`;
+    const ruleText = `IF ${sensor.toUpperCase()}[${metric}] ${operator} ${threshold} THEN ${actuator} ${action}`;
     const rule = {
         id: Date.now(),
         name: name || ruleText,
         sensor,
+        metric,
         operator,
-        threshold: Number(threshold),
+        threshold,
         actuator,
         action,
         text: ruleText,
@@ -1025,7 +1254,7 @@ function resetRuleBuilder() {
     ['rule-name', 'rule-threshold'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
-    ['rule-sensor', 'rule-actuator'].forEach(id => {
+    ['rule-sensor', 'rule-metric', 'rule-actuator'].forEach(id => {
         const el = document.getElementById(id); if (el) el.selectedIndex = 0;
     });
     document.getElementById('rule-operator').selectedIndex = 0;
@@ -1058,7 +1287,7 @@ function renderRules() {
             </div>
             <div class="rule-text">
                 <span class="rule-keyword if" style="font-size:.62rem;">IF</span>
-                ${rule.sensor.toUpperCase()} ${rule.operator} ${rule.threshold}
+                ${rule.sensor.toUpperCase()}[${rule.metric || '?'}] ${rule.operator} ${rule.threshold}
                 <span class="rule-keyword then" style="font-size:.62rem;margin-left:.5rem;">THEN</span>
                 ${rule.actuator} ${rule.action}
             </div>
@@ -1081,6 +1310,7 @@ function deleteRule(idx) {
             destination: '/app/rules/delete',
             body: JSON.stringify({
                 sensor: rule.sensor,
+                metric: rule.metric,
                 operator: rule.operator,
                 threshold: rule.threshold,
                 actuator: rule.actuator,
@@ -1096,11 +1326,12 @@ function deleteRule(idx) {
     }
 }
 
-['rule-sensor', 'rule-operator', 'rule-threshold', 'rule-actuator', 'rule-action'].forEach(id => {
+['rule-sensor', 'rule-metric', 'rule-operator', 'rule-threshold', 'rule-actuator', 'rule-action'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', updateRulePreview);
     document.getElementById(id)?.addEventListener('input', updateRulePreview);
 });
 document.getElementById('rule-sensor')?.addEventListener('change', onRuleSensorChange);
+document.getElementById('rule-metric')?.addEventListener('change', onRuleMetricChange);
 
 // ==========================================
 // 8. ACTIVITY LOG (US13: with filtering)
@@ -1154,6 +1385,58 @@ function setLogFilter(filter, btn) {
     document.querySelectorAll('#log-filter-tabs .btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderFilteredLogs();
+}
+
+function downloadLogs(format) {
+    // Get filtered logs based on current filter
+    const filtered = state.logFilter === 'all'
+        ? state.logs
+        : state.logs.filter(l => l.type === state.logFilter);
+
+    if (filtered.length === 0) {
+        showToast('No logs to download', 'warning');
+        return;
+    }
+
+    let content, filename, mimeType;
+
+    if (format === 'json') {
+        content = JSON.stringify(filtered, null, 2);
+        filename = `activity-logs-${new Date().toISOString().split('T')[0]}.json`;
+        mimeType = 'application/json';
+    } else if (format === 'csv') {
+        // CSV header
+        const headers = ['Time', 'Type', 'Message'];
+        const rows = [headers.join(',')];
+
+        // Add data rows
+        filtered.forEach(log => {
+            const row = [
+                log.time,
+                log.type,
+                `"${(log.message || '').replace(/"/g, '""')}"` // Escape quotes
+            ].join(',');
+            rows.push(row);
+        });
+
+        content = rows.join('\n');
+        filename = `activity-logs-${new Date().toISOString().split('T')[0]}.csv`;
+        mimeType = 'text/csv';
+    }
+
+    // Create blob and trigger download
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    addLog('config', `Logs exported as ${format.toUpperCase()}`);
+    showToast(`Logs downloaded: ${filename}`, 'success');
 }
 
 // ==========================================
@@ -1369,11 +1652,69 @@ function downloadFile(content, filename, mimeType) {
 // 15. SAFE RANGES (US14)
 // ==========================================
 function checkSafeRange(sensorKey, value) {
-    const range = state.safeRanges[sensorKey];
-    if (!range || typeof value !== 'number') return;
-    if (value < range.min || value > range.max) {
-        addLog('alert', `\u26A0 ${sensorKey} = ${value} OUT OF RANGE [${range.min} \u2013 ${range.max}]`);
-        showToast(`${sensorKey} = ${value} out of safe range!`, 'error');
+    const range = getSafeRangeConfig(sensorKey);
+    if (!range) return;
+
+    if (range.kind === 'numeric') {
+        if (typeof value !== 'number') return;
+        if (value < range.min || value > range.max) {
+            addLog('alert', `\u26A0 ${sensorKey} = ${value} OUT OF RANGE [${range.min} - ${range.max}]`);
+            showToast(`${sensorKey} = ${value} out of safe range!`, 'error');
+        }
+        return;
+    }
+
+    const normalizedValue = normalizeSafeStateValue(value);
+    if (normalizedValue && !range.allowedValues.includes(normalizedValue)) {
+        addLog('alert', `\u26A0 ${sensorKey} = ${value} NOT IN SAFE STATES [${range.allowedValues.join(', ')}]`);
+        showToast(`${sensorKey} = ${value} is not in safe states`, 'error');
+    }
+}
+
+function configureSafeRangeForm() {
+    const sensorKey = document.getElementById('threshold-sensor')?.value;
+    const minGroup = document.getElementById('threshold-min-group');
+    const maxGroup = document.getElementById('threshold-max-group');
+    const statesGroup = document.getElementById('threshold-states-group');
+    const help = document.getElementById('threshold-help');
+    const minInput = document.getElementById('threshold-min');
+    const maxInput = document.getElementById('threshold-max');
+    const statesInput = document.getElementById('threshold-safe-states');
+    if (!minGroup || !maxGroup || !statesGroup || !help || !minInput || !maxInput || !statesInput) return;
+
+    minInput.value = '';
+    maxInput.value = '';
+    statesInput.value = '';
+
+    if (!sensorKey) {
+        minGroup.classList.remove('d-none');
+        maxGroup.classList.remove('d-none');
+        statesGroup.classList.add('d-none');
+        help.textContent = 'Select a metric to configure either a numeric interval or a list of safe states.';
+        return;
+    }
+
+    const range = getSafeRangeConfig(sensorKey);
+    if (isSafeRangeNumericMetric(sensorKey)) {
+        minGroup.classList.remove('d-none');
+        maxGroup.classList.remove('d-none');
+        statesGroup.classList.add('d-none');
+        help.textContent = 'Numeric metrics are safe only when the current value stays inside the configured min/max interval.';
+
+        if (range?.kind === 'numeric') {
+            minInput.value = range.min;
+            maxInput.value = range.max;
+        }
+        return;
+    }
+
+    minGroup.classList.add('d-none');
+    maxGroup.classList.add('d-none');
+    statesGroup.classList.remove('d-none');
+    help.textContent = 'Text metrics are safe only when the current value matches one of the comma-separated states.';
+
+    if (range?.kind === 'enum') {
+        statesInput.value = range.allowedValues.join(', ');
     }
 }
 
@@ -1381,24 +1722,44 @@ function addSafeRange() {
     const sensorKey = document.getElementById('threshold-sensor')?.value;
     const min = document.getElementById('threshold-min')?.value;
     const max = document.getElementById('threshold-max')?.value;
+    const safeStates = document.getElementById('threshold-safe-states')?.value || '';
 
     if (!sensorKey) { showToast('Select a sensor/metric', 'warning'); return; }
-    if (min === '' || max === '' || isNaN(Number(min)) || isNaN(Number(max))) {
-        showToast('Enter valid min and max values', 'warning'); return;
-    }
-    if (Number(min) >= Number(max)) {
-        showToast('Min must be less than Max', 'warning'); return;
+
+    if (isSafeRangeNumericMetric(sensorKey)) {
+        if (min === '' || max === '' || isNaN(Number(min)) || isNaN(Number(max))) {
+            showToast('Enter valid min and max values', 'warning'); return;
+        }
+        if (Number(min) >= Number(max)) {
+            showToast('Min must be less than Max', 'warning'); return;
+        }
+
+        state.safeRanges[sensorKey] = { kind: 'numeric', min: Number(min), max: Number(max) };
+        localStorage.setItem('safeRanges', JSON.stringify(state.safeRanges));
+        addLog('config', `Safe range set: ${sensorKey} [${min} - ${max}]`);
+        showToast(`Safe range set for ${sensorKey}`, 'success');
+    } else {
+        const allowedValues = safeStates
+            .split(',')
+            .map(normalizeSafeStateValue)
+            .filter(Boolean);
+
+        if (allowedValues.length === 0) {
+            showToast('Enter at least one safe state', 'warning'); return;
+        }
+
+        state.safeRanges[sensorKey] = {
+            kind: 'enum',
+            allowedValues: [...new Set(allowedValues)]
+        };
+        localStorage.setItem('safeRanges', JSON.stringify(state.safeRanges));
+        addLog('config', `Safe states set: ${sensorKey} [${state.safeRanges[sensorKey].allowedValues.join(', ')}]`);
+        showToast(`Safe states set for ${sensorKey}`, 'success');
     }
 
-    state.safeRanges[sensorKey] = { min: Number(min), max: Number(max) };
-    localStorage.setItem('safeRanges', JSON.stringify(state.safeRanges));
-    addLog('config', `Safe range set: ${sensorKey} [${min} \u2013 ${max}]`);
-    showToast(`Safe range set for ${sensorKey}`, 'success');
     renderSafeRanges();
     updateStatsBadges();
-
-    document.getElementById('threshold-min').value = '';
-    document.getElementById('threshold-max').value = '';
+    configureSafeRangeForm();
 }
 
 function deleteSafeRange(key) {
@@ -1415,16 +1776,22 @@ function renderSafeRanges() {
 
     const entries = Object.entries(state.safeRanges);
     if (entries.length === 0) {
-        container.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><i class="bi bi-shield-check"></i><p>No safe ranges configured</p><p class="empty-hint">Set min/max thresholds above to trigger visual alarms when values go out of range</p></div>';
+        container.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><i class="bi bi-shield-check"></i><p>No safe thresholds configured</p><p class="empty-hint">Set either a numeric interval or a list of safe states to trigger visual alarms when a metric becomes unsafe</p></div>';
         return;
     }
 
     let html = '';
     entries.forEach(([key, range]) => {
         const sensor = state.sensors[key];
+        const safeRange = normalizeSafeRange(range);
+        if (!safeRange) return;
         const currentVal = sensor ? sensor.value : '\u2014';
         const unit = sensor ? (sensor.unit || '') : '';
-        const isOutOfRange = sensor && typeof sensor.value === 'number' && (sensor.value < range.min || sensor.value > range.max);
+        const isOutOfRange = sensor && isSafeRangeBreached(safeRange, sensor.value);
+        const label = safeRange.kind === 'numeric' ? 'Range' : 'Safe states';
+        const summary = safeRange.kind === 'numeric'
+            ? `<span style="color:var(--success);">${safeRange.min}</span> - <span style="color:var(--success);">${safeRange.max}</span> ${unit}`
+            : `<span style="color:var(--success);">${safeRange.allowedValues.join(', ')}</span>`;
 
         html += `
         <div class="rule-card ${isOutOfRange ? 'alarm-card' : ''}">
@@ -1433,7 +1800,7 @@ function renderSafeRanges() {
                     ${key}
                 </div>
                 <div style="font-size:.68rem;color:var(--text-tertiary);margin-top:2px;">
-                    Range: <span style="color:var(--success);">${range.min}</span> \u2013 <span style="color:var(--success);">${range.max}</span> ${unit}
+                    ${label}: ${summary}
                     &nbsp;|&nbsp; Current: <span style="color:${isOutOfRange ? 'var(--danger)' : 'var(--text-primary)'};font-weight:600;">${currentVal}</span> ${unit}
                 </div>
             </div>
@@ -1451,7 +1818,17 @@ function renderSafeRanges() {
 // ==========================================
 renderRules();
 updateStatsBadges();
+Object.entries(state.safeRanges).forEach(([key, range]) => {
+    const normalized = normalizeSafeRange(range);
+    if (normalized) {
+        state.safeRanges[key] = normalized;
+    } else {
+        delete state.safeRanges[key];
+    }
+});
+localStorage.setItem('safeRanges', JSON.stringify(state.safeRanges));
 renderSafeRanges();
+configureSafeRangeForm();
 stompClient.activate();
 
 // Periodically refresh relative times and builder live values
@@ -1461,3 +1838,5 @@ setInterval(() => {
         renderDashboard();
     }
 }, 5000);
+
+document.getElementById('threshold-sensor')?.addEventListener('change', configureSafeRangeForm);

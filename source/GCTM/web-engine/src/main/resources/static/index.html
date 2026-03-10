@@ -129,13 +129,19 @@
                     <div class="rule-block rule-block-if mb-3">
                         <div class="rule-block-header"><span class="rule-keyword if">IF</span> Condition</div>
                         <div class="row g-2 align-items-end">
-                            <div class="col-md-4">
-                                <label class="rule-label">Sensor / Metric</label>
+                            <div class="col-md-3">
+                                <label class="rule-label">Sensor</label>
                                 <select id="rule-sensor" class="form-select form-select-sm form-control-glass">
                                     <option value="" disabled selected>Select sensor…</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
+                                <label class="rule-label">Metric</label>
+                                <select id="rule-metric" class="form-select form-select-sm form-control-glass">
+                                    <option value="" disabled selected>Select metric…</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
                                 <label class="rule-label">Operator</label>
                                 <select id="rule-operator" class="form-select form-select-sm form-control-glass">
                                     <option value=">">&gt; greater than</option>
@@ -146,10 +152,10 @@
                                     <option value="!=">&ne; not equal</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <label class="rule-label">Threshold</label>
                                 <div class="input-group input-group-sm">
-                                    <input type="number" id="rule-threshold" class="form-control form-control-glass" placeholder="0" step="any">
+                                        <input type="text" id="rule-threshold" class="form-control form-control-glass" placeholder="Enter value">
                                     <span id="rule-unit-badge" class="input-group-text" style="background:var(--surface-3);border-color:var(--border);color:var(--text-tertiary);font-size:.72rem;">—</span>
                                 </div>
                             </div>
@@ -207,12 +213,22 @@
             <div id="activity" class="section d-none">
                 <div class="section-title"><i class="bi bi-activity"></i> Activity Log</div>
                 <div class="glass p-4">
-                    <div class="d-flex gap-2 mb-3 flex-wrap" id="log-filter-tabs">
-                        <button class="btn btn-glass btn-sm active" onclick="setLogFilter('all', this)">All</button>
-                        <button class="btn btn-glass btn-sm" onclick="setLogFilter('rule', this)">Automations</button>
-                        <button class="btn btn-glass btn-sm" onclick="setLogFilter('command', this)">Commands</button>
-                        <button class="btn btn-glass btn-sm" onclick="setLogFilter('alert', this)">Alerts</button>
-                        <button class="btn btn-glass btn-sm" onclick="setLogFilter('config', this)">System</button>
+                    <div class="d-flex gap-2 mb-3 flex-wrap justify-content-between align-items-center">
+                        <div class="d-flex gap-2 flex-wrap" id="log-filter-tabs">
+                            <button class="btn btn-glass btn-sm active" onclick="setLogFilter('all', this)">All</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('rule', this)">Automations</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('command', this)">Commands</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('alert', this)">Alerts</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('config', this)">System</button>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-glass btn-sm" onclick="downloadLogs('json')" title="Download as JSON">
+                                <i class="bi bi-download"></i> JSON
+                            </button>
+                            <button class="btn btn-glass btn-sm" onclick="downloadLogs('csv')" title="Download as CSV">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                        </div>
                     </div>
                     <div id="system-logs" class="log-list"></div>
                 </div>
@@ -230,7 +246,7 @@
 
             <!-- SAFE RANGES (US14) -->
             <div id="safe-ranges" class="section d-none">
-                <div class="section-title"><i class="bi bi-shield-check"></i> Safe Range Thresholds</div>
+                <div class="section-title"><i class="bi bi-shield-check"></i> Safe Thresholds</div>
                 <div class="glass p-4 mb-3">
                     <div class="group-label"><i class="bi bi-plus-circle" style="color:var(--accent);"></i> Configure Threshold</div>
                     <div class="row g-2 align-items-end">
@@ -240,18 +256,23 @@
                                 <option value="" disabled selected>Select…</option>
                             </select>
                         </div>
-                        <div class="col-md-3">
+                        <div id="threshold-min-group" class="col-md-3">
                             <label class="rule-label">Min Value</label>
                             <input type="number" id="threshold-min" class="form-control form-control-sm form-control-glass" step="any" placeholder="Min">
                         </div>
-                        <div class="col-md-3">
+                        <div id="threshold-max-group" class="col-md-3">
                             <label class="rule-label">Max Value</label>
                             <input type="number" id="threshold-max" class="form-control form-control-sm form-control-glass" step="any" placeholder="Max">
+                        </div>
+                        <div id="threshold-states-group" class="col-md-6 d-none">
+                            <label class="rule-label">Safe States</label>
+                            <input type="text" id="threshold-safe-states" class="form-control form-control-sm form-control-glass" placeholder="e.g. closed, idle, sealed">
                         </div>
                         <div class="col-md-2">
                             <button class="btn btn-accent btn-sm w-100" onclick="addSafeRange()"><i class="bi bi-check-lg me-1"></i>Set</button>
                         </div>
                     </div>
+                    <div id="threshold-help" class="empty-hint mt-2">Select a metric to configure either a numeric interval or a list of safe states.</div>
                 </div>
                 <div class="glass p-4">
                     <div class="group-label"><i class="bi bi-list-check" style="color:var(--success);"></i> Active Thresholds</div>

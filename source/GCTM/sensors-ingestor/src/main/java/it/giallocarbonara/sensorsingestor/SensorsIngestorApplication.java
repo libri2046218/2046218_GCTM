@@ -165,20 +165,34 @@ public class SensorsIngestorApplication {
 
         // Logica di mapping (Scalari, Chimici, Power, ecc.)
         if (node.has("value") && node.has("metric")) {
+            // rest.scalar.v1: greenhouse_temperature, entrance_humidity, co2_hall, corridor_pressure
             metrics.add(new Metric(node.get("metric").asText(), node.get("value").asDouble(), node.get("unit").asText("")));
         } else if (node.has("measurements")) {
+            // rest.chemistry.v1 & topic.environment.v1: hydroponic_ph, air_quality_voc, radiation, life_support
             node.get("measurements").forEach(m -> metrics.add(new Metric(
                     m.get("metric").asText(), m.get("value").asDouble(), m.get("unit").asText(""))));
         } else if (node.has("power_kw")) {
+            // topic.power.v1: solar_array, power_bus, power_consumption
             metrics.add(new Metric("power", node.get("power_kw").asDouble(), "kW"));
             metrics.add(new Metric("voltage", node.get("voltage_v").asDouble(), "V"));
+            metrics.add(new Metric("current", node.get("current_a").asDouble(), "A"));
+            metrics.add(new Metric("cumulative_kwh", node.get("cumulative_kwh").asDouble(), "kWh"));
         } else if (node.has("pm25_ug_m3")) {
+            // rest.particulate.v1: air_quality_pm25
+            metrics.add(new Metric("pm1", node.get("pm1_ug_m3").asDouble(), "ug/m3"));
             metrics.add(new Metric("pm25", node.get("pm25_ug_m3").asDouble(), "ug/m3"));
+            metrics.add(new Metric("pm10", node.get("pm10_ug_m3").asDouble(), "ug/m3"));
         } else if (node.has("level_pct")) {
-            metrics.add(new Metric("level", node.get("level_pct").asDouble(), "%"));
+            // rest.level.v1: water_tank_level
+            metrics.add(new Metric("level_pct", node.get("level_pct").asDouble(), "%"));
+            metrics.add(new Metric("level_liters", node.get("level_liters").asDouble(), "L"));
         } else if (node.has("temperature_c") && node.has("loop")) {
+            // topic.thermal_loop.v1: thermal_loop
             metrics.add(new Metric("temperature", node.get("temperature_c").asDouble(), "°C"));
+            metrics.add(new Metric("flow", node.get("flow_l_min").asDouble(), "L/min"));
         } else if (node.has("cycles_per_hour")) {
+            // topic.airlock.v1: airlock
+            metrics.add(new Metric("cycles_per_hour", node.get("cycles_per_hour").asDouble(), "cph"));
             metrics.add(new Metric("state", node.get("last_state").asText(), "status"));
         }
 
