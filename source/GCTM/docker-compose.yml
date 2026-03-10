@@ -24,7 +24,7 @@ services:
       - mars-network
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    image: docker.elastic.co/elasticsearch/elasticsearch-wolfi:9.3.1
     container_name: elasticsearch
     volumes:
       # Format: [HOST_PATH]:[CONTAINER_PATH]
@@ -45,7 +45,7 @@ services:
       - mars-network
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.17.0
+    image: docker.elastic.co/kibana/kibana:9.3.1
     container_name: kibana
     ports:
       - "5601:5601"
@@ -72,6 +72,8 @@ services:
       activemq-broker:
         condition: service_healthy
       automation-evaluator:
+        condition: service_started
+      history-service:
         condition: service_started
     networks:
       - mars-network
