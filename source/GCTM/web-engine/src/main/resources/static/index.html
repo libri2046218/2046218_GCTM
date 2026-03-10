@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mars Base — Ground Control Telemetry</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon"><i class="bi bi-rocket-takeoff-fill text-white"></i></div>
+            <div>
+                <div class="brand-text">GCTM</div>
+                <div class="brand-sub">Mars Mission Control</div>
+            </div>
+        </div>
+
+        <div id="connection-status">
+            <span class="status-pill offline"><span class="status-dot"></span> Offline</span>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <nav class="nav flex-column">
+            <a class="nav-link active" href="#" data-section="dashboard">
+                <i class="bi bi-grid-1x2"></i> Dashboard
+                <span class="nav-badge" id="badge-sensors">0</span>
+            </a>
+            <a class="nav-link" href="#" data-section="actuators">
+                <i class="bi bi-toggles2"></i> Controls
+                <span class="nav-badge" id="badge-actuators">0</span>
+            </a>
+            <a class="nav-link" href="#" data-section="automations">
+                <i class="bi bi-cpu"></i> Automations
+                <span class="nav-badge" id="badge-rules">0</span>
+            </a>
+            <a class="nav-link" href="#" data-section="activity">
+                <i class="bi bi-activity"></i> Activity
+            </a>
+            <a class="nav-link" href="#" data-section="network">
+                <i class="bi bi-hdd-network"></i> Network
+            </a>
+            <a class="nav-link" href="#" data-section="safe-ranges">
+                <i class="bi bi-shield-check"></i> Safe Ranges
+                <span class="nav-badge" id="badge-alarms">0</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-clock">
+                <i class="bi bi-clock"></i>
+                <span id="clock"></span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-wrap">
+
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+            <div class="stat-chip">
+                <i class="bi bi-broadcast" style="color:var(--accent);"></i>
+                Sensors <span class="stat-val" id="stat-sensors">0</span>
+            </div>
+            <div class="stat-chip">
+                <i class="bi bi-toggles2" style="color:var(--teal);"></i>
+                Actuators <span class="stat-val" id="stat-actuators">0</span>
+            </div>
+            <div class="stat-chip">
+                <i class="bi bi-cpu" style="color:var(--warning);"></i>
+                Rules <span class="stat-val" id="stat-rules">0</span>
+            </div>
+
+        </div>
+
+        <div class="page-body">
+
+            <!-- DASHBOARD -->
+            <div id="dashboard" class="section">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="section-title mb-0"><i class="bi bi-grid-1x2"></i> Sensors Overview</div>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-glass active" id="view-cards-btn" onclick="setViewMode('cards')"><i class="bi bi-grid-3x3-gap me-1"></i>Cards</button>
+                            <button class="btn btn-glass" id="view-charts-btn" onclick="setViewMode('charts')"><i class="bi bi-graph-up me-1"></i>Charts</button>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-glass active" id="group-origin" onclick="setGroupBy('origin')"><i class="bi bi-diagram-3 me-1"></i>By Source</button>
+                            <button class="btn btn-glass" id="group-type" onclick="setGroupBy('type')"><i class="bi bi-collection me-1"></i>By Type</button>
+                        </div>
+                        <button class="btn btn-glass btn-sm" onclick="exportData('csv')" title="Export CSV"><i class="bi bi-filetype-csv"></i></button>
+                        <button class="btn btn-glass btn-sm" onclick="exportData('json')" title="Export JSON"><i class="bi bi-filetype-json"></i></button>
+                    </div>
+                </div>
+                <div id="sensor-groups-container"></div>
+            </div>
+
+            <!-- CONTROLS -->
+            <div id="actuators" class="section d-none">
+                <div class="section-title"><i class="bi bi-toggles2"></i> Actuator Controls</div>
+                <div id="actuators-container" class="row g-3"></div>
+            </div>
+
+            <!-- AUTOMATIONS -->
+            <div id="automations" class="section d-none">
+                <div class="section-title"><i class="bi bi-cpu"></i> Automation Rules</div>
+
+                <!-- Visual Rule Builder -->
+                <div class="glass p-4 mb-3">
+                    <div class="group-label"><i class="bi bi-plus-circle" style="color:var(--accent);"></i> Create New Rule</div>
+
+                    <div class="mb-3">
+                        <label class="rule-label">Rule Name</label>
+                        <input type="text" id="rule-name" class="form-control form-control-glass"
+                               placeholder="e.g. Emergency O2 Ventilation">
+                    </div>
+
+                    <div class="rule-block rule-block-if mb-3">
+                        <div class="rule-block-header"><span class="rule-keyword if">IF</span> Condition</div>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-3">
+                                <label class="rule-label">Sensor</label>
+                                <select id="rule-sensor" class="form-select form-select-sm form-control-glass">
+                                    <option value="" disabled selected>Select sensor…</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="rule-label">Metric</label>
+                                <select id="rule-metric" class="form-select form-select-sm form-control-glass">
+                                    <option value="" disabled selected>Select metric…</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="rule-label">Operator</label>
+                                <select id="rule-operator" class="form-select form-select-sm form-control-glass">
+                                    <option value=">">&gt; greater than</option>
+                                    <option value="<">&lt; less than</option>
+                                    <option value=">=">&ge; greater or equal</option>
+                                    <option value="<=">&le; less or equal</option>
+                                    <option value="==">= equal to</option>
+                                    <option value="!=">&ne; not equal</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="rule-label">Threshold</label>
+                                <div class="input-group input-group-sm">
+                                        <input type="text" id="rule-threshold" class="form-control form-control-glass" placeholder="Enter value">
+                                    <span id="rule-unit-badge" class="input-group-text" style="background:var(--surface-3);border-color:var(--border);color:var(--text-tertiary);font-size:.72rem;">—</span>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div id="rule-sensor-live" class="rule-live-value">—</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="rule-block rule-block-then mb-3">
+                        <div class="rule-block-header"><span class="rule-keyword then">THEN</span> Action</div>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-5">
+                                <label class="rule-label">Actuator</label>
+                                <select id="rule-actuator" class="form-select form-select-sm form-control-glass">
+                                    <option value="" disabled selected>Select actuator…</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="rule-label">Action</label>
+                                <select id="rule-action" class="form-select form-select-sm form-control-glass">
+                                    <option value="ON">Turn ON</option>
+                                    <option value="OFF">Turn OFF</option>
+                                    <option value="TOGGLE">Toggle</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-inner p-2 px-3 mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-eye" style="color:var(--accent);"></i>
+                            <code id="rule-preview" style="font-family:'JetBrains Mono',monospace;font-size:.78rem;color:var(--text-tertiary);">Select sensor and actuator to preview rule…</code>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2 align-items-center">
+                        <button class="btn btn-accent" onclick="submitBuilderRule()">
+                            <i class="bi bi-check-lg me-1"></i> Create Rule
+                        </button>
+                        <button class="btn btn-glass" onclick="resetRuleBuilder()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+                        </button>
+                        <div id="rule-feedback" class="ms-2" style="font-size:.8rem;"></div>
+                    </div>
+                </div>
+
+                <div class="glass p-4">
+                    <div class="group-label"><i class="bi bi-list-check" style="color:var(--success);"></i> Active Rules</div>
+                    <div id="active-rules-container"></div>
+                </div>
+            </div>
+
+            <!-- ACTIVITY -->
+            <div id="activity" class="section d-none">
+                <div class="section-title"><i class="bi bi-activity"></i> Activity Log</div>
+                <div class="glass p-4">
+                    <div class="d-flex gap-2 mb-3 flex-wrap justify-content-between align-items-center">
+                        <div class="d-flex gap-2 flex-wrap" id="log-filter-tabs">
+                            <button class="btn btn-glass btn-sm active" onclick="setLogFilter('all', this)">All</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('rule', this)">Automations</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('command', this)">Commands</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('alert', this)">Alerts</button>
+                            <button class="btn btn-glass btn-sm" onclick="setLogFilter('config', this)">System</button>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-glass btn-sm" onclick="downloadLogs('json')" title="Download as JSON">
+                                <i class="bi bi-download"></i> JSON
+                            </button>
+                            <button class="btn btn-glass btn-sm" onclick="downloadLogs('csv')" title="Download as CSV">
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                        </div>
+                    </div>
+                    <div id="system-logs" class="log-list"></div>
+                </div>
+            </div>
+
+            <!-- NETWORK HEALTH (US11) -->
+            <div id="network" class="section d-none">
+                <div class="section-title"><i class="bi bi-hdd-network"></i> Network Health</div>
+                <div class="row g-3 mb-3" id="network-stats-cards"></div>
+                <div class="glass p-4">
+                    <div class="group-label"><i class="bi bi-broadcast" style="color:var(--teal);"></i> Sensor Freshness</div>
+                    <div id="sensor-freshness-container"></div>
+                </div>
+            </div>
+
+            <!-- SAFE RANGES (US14) -->
+            <div id="safe-ranges" class="section d-none">
+                <div class="section-title"><i class="bi bi-shield-check"></i> Safe Thresholds</div>
+                <div class="glass p-4 mb-3">
+                    <div class="group-label"><i class="bi bi-plus-circle" style="color:var(--accent);"></i> Configure Threshold</div>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="rule-label">Sensor / Metric</label>
+                            <select id="threshold-sensor" class="form-select form-select-sm form-control-glass">
+                                <option value="" disabled selected>Select…</option>
+                            </select>
+                        </div>
+                        <div id="threshold-min-group" class="col-md-3">
+                            <label class="rule-label">Min Value</label>
+                            <input type="number" id="threshold-min" class="form-control form-control-sm form-control-glass" step="any" placeholder="Min">
+                        </div>
+                        <div id="threshold-max-group" class="col-md-3">
+                            <label class="rule-label">Max Value</label>
+                            <input type="number" id="threshold-max" class="form-control form-control-sm form-control-glass" step="any" placeholder="Max">
+                        </div>
+                        <div id="threshold-states-group" class="col-md-6 d-none">
+                            <label class="rule-label">Safe States</label>
+                            <input type="text" id="threshold-safe-states" class="form-control form-control-sm form-control-glass" placeholder="e.g. closed, idle, sealed">
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-accent btn-sm w-100" onclick="addSafeRange()"><i class="bi bi-check-lg me-1"></i>Set</button>
+                        </div>
+                    </div>
+                    <div id="threshold-help" class="empty-hint mt-2">Select a metric to configure either a numeric interval or a list of safe states.</div>
+                </div>
+                <div class="glass p-4">
+                    <div class="group-label"><i class="bi bi-list-check" style="color:var(--success);"></i> Active Thresholds</div>
+                    <div id="safe-ranges-container"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

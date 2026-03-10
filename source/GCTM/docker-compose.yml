@@ -2,6 +2,8 @@ services:
   mars-simulator:
     image: mars-iot-simulator:multiarch_v1
     container_name: mars-simulator
+    ports:
+      - 8081:8080
     networks:
       - mars-network
 
@@ -20,6 +22,25 @@ services:
       - "61616:61616"
       - "5672:5672"
       - "8161:8161"
+    networks:
+      - mars-network
+
+  db-postgres-automation:
+    image: postgres:15-alpine
+    container_name: db-postgres-automation
+    environment:
+      POSTGRES_DB: myapp_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./automation-evaluator/postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d myapp_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - mars-network
 
@@ -50,6 +71,8 @@ services:
     environment:
       - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq-broker:61616
     depends_on:
+      db-postgres-automation:
+        condition: service_healthy
       mars-simulator:
         condition: service_started
       activemq-broker:
